@@ -6,10 +6,8 @@ try:
 except ImportError:
     np = None
 
-try:
-    import matplotlib.pyplot as plt
-except ImportError:
-    plt = None
+import matplotlib.pyplot as plt
+
 
 
 Func2D = ct.CFUNCTYPE(ct.c_double, ct.c_double, ct.c_double)
@@ -87,10 +85,6 @@ if __name__ == "__main__":
         ax.set_zlabel("u(x, y)")
         ax.set_title("Poisson solution")
         plt.tight_layout()
+        plt.savefig("solution_3d.png", dpi=200, bbox_inches="tight")
         plt.show()
-    elif plt is None:
-        print("matplotlib is not installed, skip 3D plot")
-
-    plt.savefig("solution_3d.png", dpi=200, bbox_inches="tight")
-
-
+        
