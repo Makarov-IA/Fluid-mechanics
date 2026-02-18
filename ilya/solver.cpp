@@ -90,3 +90,12 @@ double* solve_dirichlet(Point sp, int Nx, int Ny, double hx, double hy, Func2D f
 
     return u;
 }
+
+extern "C" double* solve_dirichlet_c(double spx, double spy, int Nx, int Ny, double hx, double hy, Func2D_C f, Func2D_C g) {
+    Point sp{spx, spy};
+    return solve_dirichlet(sp, Nx, Ny, hx, hy, f, g);
+}
+
+extern "C" void solver_free(double* ptr) {
+    delete[] ptr;
+}
