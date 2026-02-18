@@ -90,3 +90,7 @@ if __name__ == "__main__":
         plt.show()
     elif plt is None:
         print("matplotlib is not installed, skip 3D plot")
+
+    plt.savefig("solution_3d.png", dpi=200, bbox_inches="tight")
+
+
