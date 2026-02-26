@@ -16,4 +16,11 @@ else
   exit 1
 fi
 
+if [ "$#" -eq 0 ]; then
+  echo "Usage: bash scripts/plot.sh --field omega --graph contour --snapshot-index 3 --save --no-show"
+  echo "Fields: psi | omega"
+  echo "Graphs: heatmap | surface | contour | all"
+  echo "Use --list-snapshots to inspect available time snapshots"
+fi
+
 "${PYTHON_CMD[@]}" ./plot_solution.py "$@"

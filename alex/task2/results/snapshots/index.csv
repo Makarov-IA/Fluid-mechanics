@@ -1,0 +1,12 @@
+index,step,time,psi_file,omega_file
+0,0,0,snapshots/psi_step00000.txt,snapshots/omega_step00000.txt
+1,20,0.1,snapshots/psi_step00020.txt,snapshots/omega_step00020.txt
+2,40,0.2,snapshots/psi_step00040.txt,snapshots/omega_step00040.txt
+3,60,0.3,snapshots/psi_step00060.txt,snapshots/omega_step00060.txt
+4,80,0.4,snapshots/psi_step00080.txt,snapshots/omega_step00080.txt
+5,100,0.5,snapshots/psi_step00100.txt,snapshots/omega_step00100.txt
+6,120,0.6,snapshots/psi_step00120.txt,snapshots/omega_step00120.txt
+7,140,0.7,snapshots/psi_step00140.txt,snapshots/omega_step00140.txt
+8,160,0.8,snapshots/psi_step00160.txt,snapshots/omega_step00160.txt
+9,180,0.9,snapshots/psi_step00180.txt,snapshots/omega_step00180.txt
+10,200,1,snapshots/psi_step00200.txt,snapshots/omega_step00200.txt
