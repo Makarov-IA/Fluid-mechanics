@@ -1,0 +1,10 @@
+Nx 51
+Ny 51
+dx 0.02
+dy 0.02
+Re 100
+lid_velocity 1
+iterations 4630
+converged 1
+residual 9.996149977e-06
+elapsed_seconds 1.18827

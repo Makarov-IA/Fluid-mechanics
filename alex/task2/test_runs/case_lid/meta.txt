@@ -1,0 +1,14 @@
+Nx 51
+Ny 51
+dx 0.02
+dy 0.02
+nu 0.01
+lid_velocity 1
+forcing zero
+forcing_amp 0
+forcing_omega_t 0
+iterations 2595
+converged 1
+residual 9.997627617e-06
+elapsed_seconds 0.92775
+final_time 11.6775
