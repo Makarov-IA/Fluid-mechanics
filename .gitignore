@@ -58,3 +58,6 @@ dkms.conf
 .vscode/
 .venv/
 __pycache__
+alex/papers
+alex/data/results
+alex/plots/frames

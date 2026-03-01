@@ -1,14 +1,26 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-ALEX_ROOT="$SCRIPT_DIR/.."
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="$ROOT_DIR/build"
+BIN="$BUILD_DIR/solver_app"
 
-cd "$ALEX_ROOT" || exit 1
+CONFIG_PATH="${1:-$ROOT_DIR/configs/config.cfg}"
+OUT_DIR="${2:-$ROOT_DIR/data/results}"
 
-START_TIME=$(date +%s.%N)
+mkdir -p "$BUILD_DIR"
+mkdir -p "$OUT_DIR"
 
-make run
+echo "[run] Building..."
+g++ -std=c++17 \
+  "$ROOT_DIR/main.cpp" \
+  "$ROOT_DIR/solver/v1/solver.cpp" \
+  -I"$ROOT_DIR" \
+  -I"$ROOT_DIR/../External_libs" \
+  -O2 \
+  -o "$BIN"
 
-END_TIME=$(date +%s.%N)
-DURATION=$(awk "BEGIN {print $END_TIME - $START_TIME}")
-printf "\nОбщее время: %.3f с\n" "$DURATION"
+echo "[run] Running..."
+"$BIN" "$CONFIG_PATH" "$OUT_DIR"
+
+echo "[run] Finished."
