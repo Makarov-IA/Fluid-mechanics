@@ -81,7 +81,7 @@ class StokesMACLib:
 if __name__ == "__main__":
     nx, ny, n_steps = 64, 64, 2000
     lx, ly, lt = 1.0, 1.0, 0.04
-    nu = 1.002
+    nu = 5.002
     dt = lt/n_steps
     frame_every = 5
     gif_fps = 12
