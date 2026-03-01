@@ -1,154 +1,164 @@
 # Monolithic MAC Stokes Solver (2D)
 
-Этот решатель реализует линейную задачу Стокса в постановке кюветы (lid-driven cavity) на MAC-сетке с монолитной СЛАУ для `u^{n+1}, v^{n+1}, p^{n+1}`.
+This folder contains a 2D incompressible Stokes solver on a staggered MAC grid.
+Time discretization: first-order backward Euler.
+Space discretization: second-order central differences.
 
-## Непрерывная модель
+## Continuous equations
 
-\[
-\frac{\partial u}{\partial t} - \nu \Delta u + \frac{\partial p}{\partial x} = f_1,\quad
-\frac{\partial v}{\partial t} - \nu \Delta v + \frac{\partial p}{\partial y} = f_2,\quad
-\frac{\partial u}{\partial x}+\frac{\partial v}{\partial y}=0.
-\]
+```text
+du/dt - nu * Laplace(u) + dp/dx = f1
+dv/dt - nu * Laplace(v) + dp/dy = f2
+du/dx + dv/dy = 0
+```
 
-Схема по времени: backward Euler (1-й порядок).
-Схема по пространству: центральные разности (2-й порядок).
+## MAC grid layout
 
-## MAC-размещение
+```text
+p[i,j] : cell centers,        i=0..Nx-1, j=0..Ny-1, size Nx x Ny
+u[i,j] : vertical faces,      i=0..Nx,   j=0..Ny-1, size (Nx+1) x Ny
+v[i,j] : horizontal faces,    i=0..Nx-1, j=0..Ny,   size Nx x (Ny+1)
+```
 
-- `p[i,j]`, `i=0..Nx-1`, `j=0..Ny-1` (центры ячеек), размер `Nx x Ny`
-- `u[i,j]`, `i=0..Nx`, `j=0..Ny-1` (вертикальные грани), размер `(Nx+1) x Ny`
-- `v[i,j]`, `i=0..Nx-1`, `j=0..Ny` (горизонтальные грани), размер `Nx x (Ny+1)`
+```text
+dx = Lx / Nx
+dy = Ly / Ny
+```
 
-Шаги сетки: `dx=Lx/Nx`, `dy=Ly/Ny`.
+## Boundary conditions (lid-driven cavity)
 
-## Граничные условия (кювета)
+```text
+Top wall:    u = U_lid = 1, v = 0
+Other walls: u = 0,         v = 0
+Pressure gauge: p[0,0] = 0
+```
 
-- Верхняя стенка: `u=U_lid=1`, `v=0`
-- Остальные стенки: `u=0`, `v=0`
-- Давление: калибровка `p[0,0]=0` (для единственности)
+## Monolithic linear system per time step
 
-В коде no-slip на верхней стенке для `u` учитывается через ghost-формулу в лапласиане (в RHS уравнения для верхнего ряда `u`).
+Unknown vector is:
 
-## Монолитная СЛАУ
+```text
+x = [ all u^(n+1), all v^(n+1), all p^(n+1) ]^T
+```
 
-На шаге `n->n+1` решается:
+System:
 
-\[
-\begin{pmatrix}
-\frac{1}{dt}I-\nu L_u & 0 & G_x \\
-0 & \frac{1}{dt}I-\nu L_v & G_y \\
-D_x & D_y & 0
-\end{pmatrix}
-\begin{pmatrix}
-u^{n+1}\\ v^{n+1}\\ p^{n+1}
-\end{pmatrix}
-=
-\begin{pmatrix}
-\frac{1}{dt}u^n + f_1 \\
-\frac{1}{dt}v^n + f_2 \\
-0
-\end{pmatrix}.
-\]
+```text
+[ (1/dt)I - nu*L_u    0            Gx ] [u^(n+1)]   [ (1/dt)u^n + f1 ]
+[ 0                   (1/dt)I-nu*L_v Gy ] [v^(n+1)] = [ (1/dt)v^n + f2 ]
+[ Dx                  Dy           0  ] [p^(n+1)]   [ 0               ]
+```
 
-## Сеточные уравнения по всем случаям
+## Discrete equations (all cases)
 
-Ниже `u_{i,j}` означает `u(i+1/2,j)`, `v_{i,j}` означает `v(i,j+1/2)`, `p_{i,j}` — центр ячейки.
+Below, `u(i,j)` means velocity at vertical face `(i+1/2, j)`,
+`v(i,j)` means velocity at horizontal face `(i, j+1/2)`,
+`p(i,j)` means pressure at cell center.
 
-### 1) Уравнения для `u`-узлов (`i=1..Nx-1`, `j=0..Ny-1`)
+### 1) u-equation, i=1..Nx-1, j=0..Ny-1
 
-Общая форма:
-\[
-\frac{u^{n+1}_{i,j}-u^n_{i,j}}{dt}
--\nu(\delta_{xx}u^{n+1}_{i,j}+\delta_{yy}u^{n+1}_{i,j})
-+\frac{p^{n+1}_{i,j}-p^{n+1}_{i-1,j}}{dx}
-= f_1(x_i,y_j,t^{n+1}).
-\]
+```text
+(u_new(i,j) - u_old(i,j))/dt
+- nu * ( u_xx + u_yy )
++ ( p_new(i,j) - p_new(i-1,j) )/dx
+= f1(x_i, y_j, t_new)
+```
 
-#### Внутренний по `y` (`1 \le j \le Ny-2`)
-\[
-\delta_{xx}u_{i,j}=\frac{u_{i+1,j}-2u_{i,j}+u_{i-1,j}}{dx^2},\quad
-\delta_{yy}u_{i,j}=\frac{u_{i,j+1}-2u_{i,j}+u_{i,j-1}}{dy^2}.
-\]
+Interior in y (`1 <= j <= Ny-2`):
 
-#### Нижняя граница (`j=0`, no-slip `u=0`)
-Ghost: `u_{i,-1}=-u_{i,0}`:
-\[
-\delta_{yy}u_{i,0}=\frac{u_{i,1}-3u_{i,0}}{dy^2}.
-\]
+```text
+u_xx = (u(i+1,j) - 2*u(i,j) + u(i-1,j)) / dx^2
+u_yy = (u(i,j+1) - 2*u(i,j) + u(i,j-1)) / dy^2
+```
 
-#### Верхняя крышка (`j=Ny-1`, `u=U_lid`)
-Ghost: `u_{i,Ny}=2U_{lid}-u_{i,Ny-1}`:
-\[
-\delta_{yy}u_{i,Ny-1}
-=\frac{u_{i,Ny-2}-3u_{i,Ny-1}}{dy^2}
-+\frac{2U_{lid}}{dy^2}.
-\]
-Последний член `2*nu*U_lid/dy^2` переносится в RHS.
+Bottom wall (`j=0`, no-slip, ghost `u(i,-1) = -u(i,0)`):
 
-### 2) Уравнения для `v`-узлов (`i=0..Nx-1`, `j=1..Ny-1`)
+```text
+u_yy = (u(i,1) - 3*u(i,0)) / dy^2
+```
 
-Общая форма:
-\[
-\frac{v^{n+1}_{i,j}-v^n_{i,j}}{dt}
--\nu(\delta_{xx}v^{n+1}_{i,j}+\delta_{yy}v^{n+1}_{i,j})
-+\frac{p^{n+1}_{i,j}-p^{n+1}_{i,j-1}}{dy}
-= f_2(x_i,y_j,t^{n+1}).
-\]
+Top lid (`j=Ny-1`, ghost `u(i,Ny) = 2*U_lid - u(i,Ny-1)`):
 
-#### Внутренний по `x` (`1 \le i \le Nx-2`)
-\[
-\delta_{xx}v_{i,j}=\frac{v_{i+1,j}-2v_{i,j}+v_{i-1,j}}{dx^2}.
-\]
+```text
+u_yy = (u(i,Ny-2) - 3*u(i,Ny-1)) / dy^2 + 2*U_lid/dy^2
+```
 
-#### Левая/правая стенки (`i=0` или `i=Nx-1`, no-slip `v=0`)
-Ghost:
-\[
-\delta_{xx}v_{i,j}\ \Rightarrow\ \frac{v_{\text{neighbor},j}-3v_{i,j}}{dx^2}.
-\]
+The `+ 2*nu*U_lid/dy^2` term is moved to RHS.
 
-#### По `y` (`j=1..Ny-1`, при `v(i,0)=v(i,Ny)=0`)
-\[
-\delta_{yy}v_{i,j}=
-\frac{v_{i,j+1}-2v_{i,j}+v_{i,j-1}}{dy^2},
-\]
-а отсутствующие по индексу соседи на `j=0` или `j=Ny` равны нулю.
+### 2) v-equation, i=0..Nx-1, j=1..Ny-1
 
-### 3) Уравнения несжимаемости в центрах `p` (`i=0..Nx-1`, `j=0..Ny-1`)
+```text
+(v_new(i,j) - v_old(i,j))/dt
+- nu * ( v_xx + v_yy )
++ ( p_new(i,j) - p_new(i,j-1) )/dy
+= f2(x_i, y_j, t_new)
+```
 
-\[
-\frac{u^{n+1}_{i+1,j}-u^{n+1}_{i,j}}{dx}
-+\frac{v^{n+1}_{i,j+1}-v^{n+1}_{i,j}}{dy}=0.
-\]
+Interior in x (`1 <= i <= Nx-2`):
 
-Это 2-й порядок на MAC-сетке (центральная аппроксимация divergence).
+```text
+v_xx = (v(i+1,j) - 2*v(i,j) + v(i-1,j)) / dx^2
+```
 
-### 4) Калибровка давления
+Left/right walls (`i=0` or `i=Nx-1`, no-slip via ghost):
 
-Вместо уравнения divergence в одной ячейке (`i=0,j=0`) ставится:
-\[
-p_{0,0}=0.
-\]
-Это устраняет неопределенность давления по константе.
+```text
+v_xx -> (v(neighbor,j) - 3*v(i,j)) / dx^2
+```
 
-## Глобальная нумерация неизвестных
+In y (`j=1..Ny-1`, with v(i,0)=v(i,Ny)=0):
 
-В монолитном векторе:
+```text
+v_yy = (v(i,j+1) - 2*v(i,j) + v(i,j-1)) / dy^2
+```
 
-- сначала все `u`-неизвестные (`i=1..Nx-1`, `j=0..Ny-1`): `nu_unknowns=(Nx-1)*Ny`
-- затем все `v`-неизвестные (`i=0..Nx-1`, `j=1..Ny-1`): `nv_unknowns=Nx*(Ny-1)`
-- затем все `p`-узлы: `np_unknowns=Nx*Ny`
+### 3) Incompressibility at p-cells, i=0..Nx-1, j=0..Ny-1
 
-Соответствующие функции в коде:
+```text
+(u_new(i+1,j) - u_new(i,j))/dx + (v_new(i,j+1) - v_new(i,j))/dy = 0
+```
 
-- `u_unknown_idx(i,j)`
-- `v_unknown_idx(i,j)`
-- `p_unknown_idx(i,j)`
+This is second-order on uniform MAC grids.
 
-Они переводят сеточные индексы `(i,j)` в индекс строки/столбца глобальной матрицы.
+### 4) Pressure gauge
 
-## Что рисует Python
+For one cell, continuity equation is replaced by:
+
+```text
+p_new(0,0) = 0
+```
+
+This removes pressure null-space (constant shift ambiguity).
+
+## Global indexing of unknowns
+
+```text
+u unknowns first:
+  i=1..Nx-1, j=0..Ny-1
+  count nu_unknowns = (Nx-1)*Ny
+
+then v unknowns:
+  i=0..Nx-1, j=1..Ny-1
+  count nv_unknowns = Nx*(Ny-1)
+
+then p unknowns:
+  i=0..Nx-1, j=0..Ny-1
+  count np_unknowns = Nx*Ny
+```
+
+Helper mappings in code:
+
+```text
+u_unknown_idx(i,j)
+v_unknown_idx(i,j)
+p_unknown_idx(i,j)
+```
+
+These map grid indices `(i,j)` to global matrix row/column indices.
+
+## Output from Python script
 
 `main.py`:
-- запускает C++ шаги во времени,
-- строит GIF эволюции (`velocity + pressure contour`),
-- строит отдельный PNG `max|div(u)|` от времени.
+- runs time stepping through C++ solver,
+- creates `stokes_evolution.gif`,
+- creates `stokes_max_divergence.png`.
