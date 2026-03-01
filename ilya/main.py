@@ -32,8 +32,6 @@ class StokesMACLib:
             ct.c_double,
             ct.c_double,
             ct.c_double,
-            ct.c_int,
-            ct.c_double,
         ]
         self.dll.stokes_mac_create_c.restype = ct.c_void_p
 
@@ -52,7 +50,7 @@ class StokesMACLib:
         self.dll.stokes_mac_get_v_c.argtypes = [ct.c_void_p]
         self.dll.stokes_mac_get_v_c.restype = ct.POINTER(ct.c_double)
 
-        self.handle = self.dll.stokes_mac_create_c(nx, ny, lx, ly, nu, dt, 7000, 1e-8)
+        self.handle = self.dll.stokes_mac_create_c(nx, ny, lx, ly, nu, dt)
         if not self.handle:
             raise RuntimeError("stokes_mac_create_c failed")
 
@@ -81,18 +79,17 @@ class StokesMACLib:
 
 
 if __name__ == "__main__":
-    nx, ny = 64, 64
-    lx, ly = 1.0, 1.0
-    nu = 0.01
-    dt = 1e-3
-    n_steps = 200
+    nx, ny, n_steps = 64, 64, 2000
+    lx, ly, lt = 1.0, 1.0, 0.04
+    nu = 1.002
+    dt = lt/n_steps
     frame_every = 5
     gif_fps = 12
 
     solver = StokesMACLib(Path(__file__).with_name("solver.dll"), nx, ny, lx, ly, nu, dt)
 
     def f1(x, y, t):
-        return float(np.sin(np.pi * x) * np.sin(np.pi * y))
+        return 0.0
 
     def f2(x, y, t):
         return 0.0
@@ -106,8 +103,10 @@ if __name__ == "__main__":
 
     frames = []
     snapshots = []
+    div_history = []
+    t_history = []
 
-    def build_frame(p, uc, vc, step_idx, t_val, speed_levels, p_levels, quiver_scale):
+    def build_frame(p, uc, vc, step_idx, t_val, speed_levels, p_levels, quiver_scale, arrow_factor):
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.8))
 
         skip = 6
@@ -116,18 +115,20 @@ if __name__ == "__main__":
         ax1.quiver(
             Xc[::skip, ::skip],
             Yc[::skip, ::skip],
-            uc[::skip, ::skip],
-            vc[::skip, ::skip],
-            color="white",
+            arrow_factor * uc[::skip, ::skip],
+            arrow_factor * vc[::skip, ::skip],
+            color="#111111",
             pivot="mid",
-            width=0.005,
-            headwidth=4.5,
-            headlength=6.0,
-            headaxislength=5.5,
+            width=0.0035,
+            headwidth=4.0,
+            headlength=5.0,
+            headaxislength=4.5,
+            angles="xy",
+            scale_units="xy",
             scale=quiver_scale,
         )
         fig.colorbar(bg, ax=ax1, label="|u|")
-        ax1.set_title(f"Velocity field, step={step_idx}")
+        ax1.set_title(f"Velocity field, t={t_val:.3f}")
         ax1.set_xlabel("x")
         ax1.set_ylabel("y")
         ax1.set_aspect("equal")
@@ -135,7 +136,7 @@ if __name__ == "__main__":
         ax1.set_ylim(0.0, ly)
 
         cp = ax2.contourf(Xc, Yc, p, levels=p_levels, cmap="coolwarm")
-        ax2.contour(Xc, Yc, p, levels=p_levels[::2], colors="black", linewidths=0.35, alpha=0.6)
+        ax2.contour(Xc, Yc, p, levels=p_levels, colors="black", linewidths=0.25, alpha=0.7)
         fig.colorbar(cp, ax=ax2, label="p")
         ax2.set_title(f"Pressure contour, t={t_val:.3f}")
         ax2.set_xlabel("x")
@@ -153,6 +154,8 @@ if __name__ == "__main__":
     for n in range(1, n_steps + 1):
         t_now = n * dt
         div_inf = solver.step(t_now, f1, f2)
+        t_history.append(t_now)
+        div_history.append(div_inf)
         if n % frame_every == 0 or n == 1 or n == n_steps:
             p_step, u_step, v_step = solver.get_fields()
             uc_step = 0.5 * (u_step[:-1, :] + u_step[1:, :])
@@ -170,40 +173,30 @@ if __name__ == "__main__":
     speed = np.sqrt(uc * uc + vc * vc)
 
     speed_max = max(np.max(np.sqrt(su * su + sv * sv)) for _, _, _, su, sv in snapshots)
-    p_abs_max = max(np.max(np.abs(sp)) for _, _, sp, _, _ in snapshots)
     speed_max = max(speed_max, 1e-12)
-    p_abs_max = max(p_abs_max, 1e-12)
     speed_levels = np.linspace(0.0, speed_max, 25)
-    p_levels = np.linspace(-p_abs_max, p_abs_max, 25)
-    quiver_scale = 20.0 / speed_max
+    p_all = np.concatenate([sp.ravel() for _, _, sp, _, _ in snapshots])
+    p_lo, p_hi = np.percentile(p_all, [2.0, 98.0])
+    if p_hi <= p_lo:
+        p_lo, p_hi = np.min(p_all), np.max(p_all)
+    p_levels = np.linspace(p_lo, p_hi, 61)
+    quiver_scale = 1.0
+    target_arrow_len = 0.1 * min(lx, ly)
+    arrow_factor = target_arrow_len / speed_max
 
     for step_idx, t_val, p_snap, uc_snap, vc_snap in snapshots:
-        build_frame(p_snap, uc_snap, vc_snap, step_idx, t_val, speed_levels, p_levels, quiver_scale)
+        build_frame(p_snap, uc_snap, vc_snap, step_idx, t_val, speed_levels, p_levels, quiver_scale, arrow_factor)
 
-    fig2, ax2 = plt.subplots(figsize=(7.5, 5.5))
-    skip = 4
-    im2 = ax2.contourf(Xc, Yc, speed, levels=24, cmap="viridis")
-    ax2.quiver(Xc[::skip, ::skip], Yc[::skip, ::skip], uc[::skip, ::skip], vc[::skip, ::skip], color="white")
-    fig2.colorbar(im2, ax=ax2, label="|u|")
-    ax2.set_title("Vector field (u, v)")
-    ax2.set_xlabel("x")
-    ax2.set_ylabel("y")
-    ax2.set_aspect("equal")
-    fig2.tight_layout()
-    fig2.savefig(out_dir / "stokes_vector_field.png", dpi=180)
-    plt.close(fig2)
-
-    fig3, ax3 = plt.subplots(figsize=(7.5, 5.5))
-    ip = ax3.contourf(Xc, Yc, p, levels=24, cmap="coolwarm")
-    ax3.contour(Xc, Yc, p, levels=16, colors="black", linewidths=0.35, alpha=0.6)
-    fig3.colorbar(ip, ax=ax3, label="p")
-    ax3.set_title("Pressure contour plot")
-    ax3.set_xlabel("x")
-    ax3.set_ylabel("y")
-    ax3.set_aspect("equal")
-    fig3.tight_layout()
-    fig3.savefig(out_dir / "stokes_pressure_contour.png", dpi=180)
-    plt.close(fig3)
+    fig_div, ax_div = plt.subplots(figsize=(7.5, 4.8))
+    ax_div.plot(t_history, div_history, color="#0d47a1", linewidth=1.6)
+    ax_div.set_title("Max divergence vs time")
+    ax_div.set_xlabel("t")
+    ax_div.set_ylabel("max |div u|")
+    ax_div.grid(True, alpha=0.35)
+    fig_div.tight_layout()
+    div_path = out_dir / "stokes_max_divergence.png"
+    fig_div.savefig(div_path, dpi=180)
+    plt.close(fig_div)
 
     gif_path = out_dir / "stokes_evolution.gif"
     gif_images = [Image.open(frame).copy() for frame in frames]
@@ -218,6 +211,5 @@ if __name__ == "__main__":
     for frame in frames:
         frame.unlink(missing_ok=True)
 
-    print(f"Saved: {out_dir / 'stokes_vector_field.png'}")
-    print(f"Saved: {out_dir / 'stokes_pressure_contour.png'}")
     print(f"Saved: {gif_path}")
+    print(f"Saved: {div_path}")

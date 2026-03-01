@@ -3,85 +3,55 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <vector>
 
-StokesMac2D::StokesMac2D(
-    int nx, int ny, double lx, double ly, double nu, double dt, int poisson_max_iter, double poisson_tol
-)
+StokesMac2D::StokesMac2D(int nx, int ny, double lx, double ly, double nu, double dt)
     : nx_(nx),
       ny_(ny),
       lx_(lx),
       ly_(ly),
       nu_(nu),
       dt_(dt),
-      poisson_max_iter_(poisson_max_iter),
-      poisson_tol_(poisson_tol),
       dx_(lx / static_cast<double>(nx)),
       dy_(ly / static_cast<double>(ny)),
       dx2_(dx_ * dx_),
       dy2_(dy_ * dy_),
+      u_lid_top_(1.0),
       p_(static_cast<size_t>(nx) * static_cast<size_t>(ny), 0.0),
       u_(static_cast<size_t>(nx + 1) * static_cast<size_t>(ny), 0.0),
-      v_(static_cast<size_t>(nx) * static_cast<size_t>(ny + 1), 0.0) {
+      v_(static_cast<size_t>(nx) * static_cast<size_t>(ny + 1), 0.0),
+      nu_unknowns_((nx - 1) * ny),
+      nv_unknowns_(nx * (ny - 1)),
+      np_unknowns_(nx * ny),
+      total_unknowns_(nu_unknowns_ + nv_unknowns_ + np_unknowns_),
+      system_mat_(total_unknowns_, total_unknowns_) {
     if (nx <= 1 || ny <= 1) {
         throw std::invalid_argument("Nx and Ny must be > 1");
     }
     if (dt <= 0.0 || lx <= 0.0 || ly <= 0.0 || nu < 0.0) {
         throw std::invalid_argument("Invalid physical parameters");
     }
+
+    build_monolithic_system();
+    system_solver_.analyzePattern(system_mat_);
+    system_solver_.factorize(system_mat_);
+    if (system_solver_.info() != Eigen::Success) {
+        throw std::runtime_error("Monolithic matrix factorization failed");
+    }
+
     apply_velocity_bc(u_, v_);
 }
 
 void StokesMac2D::apply_velocity_bc(std::vector<double>& u, std::vector<double>& v) const {
+    // u-normal on vertical walls.
     for (int j = 0; j < ny_; ++j) {
         u[u_idx(0, j)] = 0.0;
         u[u_idx(nx_, j)] = 0.0;
     }
-    for (int i = 0; i <= nx_; ++i) {
-        u[u_idx(i, 0)] = 0.0;
-        u[u_idx(i, ny_ - 1)] = 0.0;
-    }
-
+    // v-normal on horizontal walls.
     for (int i = 0; i < nx_; ++i) {
         v[v_idx(i, 0)] = 0.0;
         v[v_idx(i, ny_)] = 0.0;
-    }
-    for (int j = 0; j <= ny_; ++j) {
-        v[v_idx(0, j)] = 0.0;
-        v[v_idx(nx_ - 1, j)] = 0.0;
-    }
-}
-
-void StokesMac2D::compute_laplacian_u(const std::vector<double>& u, std::vector<double>& lap_u) const {
-    std::fill(lap_u.begin(), lap_u.end(), 0.0);
-    for (int i = 1; i < nx_; ++i) {
-        for (int j = 0; j < ny_; ++j) {
-            const double uij = u[u_idx(i, j)];
-            const double uim = u[u_idx(i - 1, j)];
-            const double uip = u[u_idx(i + 1, j)];
-            const double ujm = (j > 0) ? u[u_idx(i, j - 1)] : -uij;
-            const double ujp = (j < ny_ - 1) ? u[u_idx(i, j + 1)] : -uij;
-
-            const double u_xx = (uip - 2.0 * uij + uim) / dx2_;
-            const double u_yy = (ujp - 2.0 * uij + ujm) / dy2_;
-            lap_u[u_idx(i, j)] = u_xx + u_yy;
-        }
-    }
-}
-
-void StokesMac2D::compute_laplacian_v(const std::vector<double>& v, std::vector<double>& lap_v) const {
-    std::fill(lap_v.begin(), lap_v.end(), 0.0);
-    for (int i = 0; i < nx_; ++i) {
-        for (int j = 1; j < ny_; ++j) {
-            const double vij = v[v_idx(i, j)];
-            const double vim = (i > 0) ? v[v_idx(i - 1, j)] : -vij;
-            const double vip = (i < nx_ - 1) ? v[v_idx(i + 1, j)] : -vij;
-            const double vjm = v[v_idx(i, j - 1)];
-            const double vjp = v[v_idx(i, j + 1)];
-
-            const double v_xx = (vip - 2.0 * vij + vim) / dx2_;
-            const double v_yy = (vjp - 2.0 * vij + vjm) / dy2_;
-            lap_v[v_idx(i, j)] = v_xx + v_yy;
-        }
     }
 }
 
@@ -95,129 +65,202 @@ void StokesMac2D::compute_divergence(const std::vector<double>& u, const std::ve
     }
 }
 
-void StokesMac2D::solve_poisson_jacobi(const std::vector<double>& rhs, std::vector<double>& p) const {
-    std::vector<double> p_old = p;
-    std::vector<double> p_new = p;
+void StokesMac2D::build_monolithic_system() {
+    using Trip = Eigen::Triplet<double>;
+    std::vector<Trip> t;
+    t.reserve(static_cast<size_t>(total_unknowns_) * 8U);
 
-    const double coef = 2.0 / dx2_ + 2.0 / dy2_;
-    for (int iter = 0; iter < poisson_max_iter_; ++iter) {
-        double max_delta = 0.0;
-        for (int j = 0; j < ny_; ++j) {
-            for (int i = 0; i < nx_; ++i) {
-                const double pw = (i > 0) ? p_old[p_idx(i - 1, j)] : p_old[p_idx(i, j)];
-                const double pe = (i < nx_ - 1) ? p_old[p_idx(i + 1, j)] : p_old[p_idx(i, j)];
-                const double ps = (j > 0) ? p_old[p_idx(i, j - 1)] : p_old[p_idx(i, j)];
-                const double pn = (j < ny_ - 1) ? p_old[p_idx(i, j + 1)] : p_old[p_idx(i, j)];
+    const double inv_dt = 1.0 / dt_;
 
-                p_new[p_idx(i, j)] = ((pe + pw) / dx2_ + (pn + ps) / dy2_ - rhs[p_idx(i, j)]) / coef;
+    // Momentum for u(i,j), i=1..Nx-1, j=0..Ny-1
+    for (int j = 0; j < ny_; ++j) {
+        for (int i = 1; i < nx_; ++i) {
+            const int row = u_unknown_idx(i, j);
+            double diag = inv_dt;
+
+            // x-part of Laplacian
+            diag += 2.0 * nu_ / dx2_;
+            if (i - 1 >= 1) {
+                t.emplace_back(row, u_unknown_idx(i - 1, j), -nu_ / dx2_);
             }
-        }
+            if (i + 1 <= nx_ - 1) {
+                t.emplace_back(row, u_unknown_idx(i + 1, j), -nu_ / dx2_);
+            }
 
-        // Neumann BC and gauge fix.
-        for (int j = 0; j < ny_; ++j) {
-            p_new[p_idx(0, j)] = p_new[p_idx(1, j)];
-            p_new[p_idx(nx_ - 1, j)] = p_new[p_idx(nx_ - 2, j)];
-        }
-        for (int i = 0; i < nx_; ++i) {
-            p_new[p_idx(i, 0)] = p_new[p_idx(i, 1)];
-            p_new[p_idx(i, ny_ - 1)] = p_new[p_idx(i, ny_ - 2)];
-        }
-        p_new[p_idx(0, 0)] = 0.0;
+            // y-part with no-slip wall via ghost nodes
+            if (j == 0) {
+                diag += 3.0 * nu_ / dy2_;
+                if (j + 1 <= ny_ - 1) {
+                    t.emplace_back(row, u_unknown_idx(i, j + 1), -nu_ / dy2_);
+                }
+            } else if (j == ny_ - 1) {
+                diag += 3.0 * nu_ / dy2_;
+                t.emplace_back(row, u_unknown_idx(i, j - 1), -nu_ / dy2_);
+            } else {
+                diag += 2.0 * nu_ / dy2_;
+                t.emplace_back(row, u_unknown_idx(i, j - 1), -nu_ / dy2_);
+                t.emplace_back(row, u_unknown_idx(i, j + 1), -nu_ / dy2_);
+            }
 
-        for (size_t k = 0; k < p_new.size(); ++k) {
-            max_delta = std::max(max_delta, std::abs(p_new[k] - p_old[k]));
-        }
-        p_old.swap(p_new);
-        if (max_delta < poisson_tol_) {
-            break;
+            t.emplace_back(row, row, diag);
+
+            // +dp/dx at u location
+            t.emplace_back(row, p_unknown_idx(i, j), +1.0 / dx_);
+            t.emplace_back(row, p_unknown_idx(i - 1, j), -1.0 / dx_);
         }
     }
-    p = p_old;
+
+    // Momentum for v(i,j), i=0..Nx-1, j=1..Ny-1
+    for (int j = 1; j < ny_; ++j) {
+        for (int i = 0; i < nx_; ++i) {
+            const int row = v_unknown_idx(i, j);
+            double diag = inv_dt;
+
+            // x-part with no-slip via ghost at side walls
+            if (i == 0 || i == nx_ - 1) {
+                diag += 3.0 * nu_ / dx2_;
+            } else {
+                diag += 2.0 * nu_ / dx2_;
+            }
+            if (i > 0) {
+                t.emplace_back(row, v_unknown_idx(i - 1, j), -nu_ / dx2_);
+            }
+            if (i < nx_ - 1) {
+                t.emplace_back(row, v_unknown_idx(i + 1, j), -nu_ / dx2_);
+            }
+
+            // y-part (j=0,Ny are Dirichlet boundaries v=0)
+            diag += 2.0 * nu_ / dy2_;
+            if (j - 1 >= 1) {
+                t.emplace_back(row, v_unknown_idx(i, j - 1), -nu_ / dy2_);
+            }
+            if (j + 1 <= ny_ - 1) {
+                t.emplace_back(row, v_unknown_idx(i, j + 1), -nu_ / dy2_);
+            }
+
+            t.emplace_back(row, row, diag);
+
+            // +dp/dy at v location
+            t.emplace_back(row, p_unknown_idx(i, j), +1.0 / dy_);
+            t.emplace_back(row, p_unknown_idx(i, j - 1), -1.0 / dy_);
+        }
+    }
+
+    // Continuity at p-cells.
+    for (int j = 0; j < ny_; ++j) {
+        for (int i = 0; i < nx_; ++i) {
+            const int row = nu_unknowns_ + nv_unknowns_ + p_idx(i, j);
+            if (i == 0 && j == 0) {
+                // Pressure gauge.
+                t.emplace_back(row, p_unknown_idx(0, 0), 1.0);
+                continue;
+            }
+
+            // (u(i+1,j)-u(i,j))/dx
+            if (i + 1 <= nx_ - 1) {
+                t.emplace_back(row, u_unknown_idx(i + 1, j), +1.0 / dx_);
+            }
+            if (i >= 1) {
+                t.emplace_back(row, u_unknown_idx(i, j), -1.0 / dx_);
+            }
+
+            // (v(i,j+1)-v(i,j))/dy
+            if (j + 1 <= ny_ - 1) {
+                t.emplace_back(row, v_unknown_idx(i, j + 1), +1.0 / dy_);
+            }
+            if (j >= 1) {
+                t.emplace_back(row, v_unknown_idx(i, j), -1.0 / dy_);
+            }
+        }
+    }
+
+    system_mat_.setFromTriplets(t.begin(), t.end());
+    system_mat_.makeCompressed();
 }
 
 double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
-    std::vector<double> lap_u(u_.size(), 0.0);
-    std::vector<double> lap_v(v_.size(), 0.0);
-    std::vector<double> u_star = u_;
-    std::vector<double> v_star = v_;
-    std::vector<double> rhs(p_.size(), 0.0);
+    const double inv_dt = 1.0 / dt_;
+    Eigen::VectorXd rhs = Eigen::VectorXd::Zero(total_unknowns_);
 
-    compute_laplacian_u(u_, lap_u);
-    compute_laplacian_v(v_, lap_v);
-
+    // u-equations RHS 
     for (int j = 0; j < ny_; ++j) {
         const double y = (static_cast<double>(j) + 0.5) * dy_;
-        for (int i = 0; i <= nx_; ++i) {
+        for (int i = 1; i < nx_; ++i) {
+            const int row = u_unknown_idx(i, j);
             const double x = static_cast<double>(i) * dx_;
             const double force = (f1 != nullptr) ? f1(x, y, t) : 0.0;
-            u_star[u_idx(i, j)] = u_[u_idx(i, j)] + dt_ * (nu_ * lap_u[u_idx(i, j)] + force);
+
+            double b = inv_dt * u_[u_idx(i, j)] + force;
+            if (j == ny_ - 1) {
+                // Top moving lid contributes via ghost: u_ghost = 2*U_lid - u_inside.
+                b += 2.0 * nu_ * u_lid_top_ / dy2_;
+            }
+            rhs[row] = b;
         }
     }
 
-    for (int j = 0; j <= ny_; ++j) {
+    // v-equations RHS
+    for (int j = 1; j < ny_; ++j) {
         const double y = static_cast<double>(j) * dy_;
         for (int i = 0; i < nx_; ++i) {
+            const int row = v_unknown_idx(i, j);
             const double x = (static_cast<double>(i) + 0.5) * dx_;
             const double force = (f2 != nullptr) ? f2(x, y, t) : 0.0;
-            v_star[v_idx(i, j)] = v_[v_idx(i, j)] + dt_ * (nu_ * lap_v[v_idx(i, j)] + force);
+            rhs[row] = inv_dt * v_[v_idx(i, j)] + force;
         }
     }
 
-    apply_velocity_bc(u_star, v_star);
+    // Continuity RHS is zero, except gauge equation.
+    rhs[nu_unknowns_ + nv_unknowns_ + p_idx(0, 0)] = 0.0;
 
-    compute_divergence(u_star, v_star, rhs);
-    for (double& val : rhs) {
-        val /= dt_;
+    Eigen::VectorXd sol = system_solver_.solve(rhs);
+    if (system_solver_.info() != Eigen::Success) {
+        throw std::runtime_error("Monolithic linear solve failed");
     }
 
-    double rhs_mean = 0.0;
-    for (double val : rhs) {
-        rhs_mean += val;
-    }
-    rhs_mean /= static_cast<double>(rhs.size());
-    for (double& val : rhs) {
-        val -= rhs_mean;
-    }
-
+    std::vector<double> u_new = u_;
+    std::vector<double> v_new = v_;
     std::vector<double> p_new = p_;
-    solve_poisson_jacobi(rhs, p_new);
-
-    std::vector<double> u_new = u_star;
-    std::vector<double> v_new = v_star;
 
     for (int j = 0; j < ny_; ++j) {
         for (int i = 1; i < nx_; ++i) {
-            const double dp_dx = (p_new[p_idx(i, j)] - p_new[p_idx(i - 1, j)]) / dx_;
-            u_new[u_idx(i, j)] = u_star[u_idx(i, j)] - dt_ * dp_dx;
+            u_new[u_idx(i, j)] = sol[u_unknown_idx(i, j)];
         }
     }
     for (int j = 1; j < ny_; ++j) {
         for (int i = 0; i < nx_; ++i) {
-            const double dp_dy = (p_new[p_idx(i, j)] - p_new[p_idx(i, j - 1)]) / dy_;
-            v_new[v_idx(i, j)] = v_star[v_idx(i, j)] - dt_ * dp_dy;
+            v_new[v_idx(i, j)] = sol[v_unknown_idx(i, j)];
+        }
+    }
+    for (int j = 0; j < ny_; ++j) {
+        for (int i = 0; i < nx_; ++i) {
+            p_new[p_idx(i, j)] = sol[p_unknown_idx(i, j)];
         }
     }
 
     apply_velocity_bc(u_new, v_new);
 
-    p_.swap(p_new);
     u_.swap(u_new);
     v_.swap(v_new);
+    p_.swap(p_new);
 
     std::vector<double> div(p_.size(), 0.0);
     compute_divergence(u_, v_, div);
     double max_div = 0.0;
-    for (double val : div) {
-        max_div = std::max(max_div, std::abs(val));
+    for (int j = 0; j < ny_; ++j) {
+        for (int i = 0; i < nx_; ++i) {
+            if (i == 0 && j == 0) {
+                continue;
+            }
+            max_div = std::max(max_div, std::abs(div[p_idx(i, j)]));
+        }
     }
     return max_div;
 }
 
-extern "C" void* stokes_mac_create_c(
-    int Nx, int Ny, double Lx, double Ly, double nu, double dt, int poisson_max_iter, double poisson_tol
-) {
+extern "C" void* stokes_mac_create_c(int Nx, int Ny, double Lx, double Ly, double nu, double dt) {
     try {
-        return new StokesMac2D(Nx, Ny, Lx, Ly, nu, dt, poisson_max_iter, poisson_tol);
+        return new StokesMac2D(Nx, Ny, Lx, Ly, nu, dt);
     } catch (...) {
         return nullptr;
     }
