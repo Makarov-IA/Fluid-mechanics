@@ -1,5 +1,6 @@
 #include "solver.hpp"
 
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <fstream>
@@ -56,6 +57,9 @@ Solver::Solver(const Config& cfg) : cfg_(cfg)
     double dx2 = dx_ * dx_;
     double dy2 = dy_ * dy_;
 
+    const double omega_ax = dt_ * cfg_.nu / dx2;
+    const double omega_ay = dt_ * cfg_.nu / dy2;
+
     for (int i = 0; i < nx_; ++i)
     {
         for (int j = 0; j < ny_; ++j)
@@ -73,18 +77,44 @@ Solver::Solver(const Config& cfg) : cfg_(cfg)
             {
                 // Матрица Пуассона (Laplace(psi) = -omega)
                 p_triplets.push_back({idx, idx, -2.0 / dx2 - 2.0 / dy2});
-                p_triplets.push_back({idx, Idx(i - 1, j), 1.0 / dx2});
-                p_triplets.push_back({idx, Idx(i + 1, j), 1.0 / dx2});
-                p_triplets.push_back({idx, Idx(i, j - 1), 1.0 / dy2});
-                p_triplets.push_back({idx, Idx(i, j + 1), 1.0 / dy2});
+                // Для Dirichlet-границ не связываем внутренние строки с граничными
+                // неизвестными: вклад границы переносится в RHS.
+                if (i > 1)
+                {
+                    p_triplets.push_back({idx, Idx(i - 1, j), 1.0 / dx2});
+                }
+                if (i < nx_ - 2)
+                {
+                    p_triplets.push_back({idx, Idx(i + 1, j), 1.0 / dx2});
+                }
+                if (j > 1)
+                {
+                    p_triplets.push_back({idx, Idx(i, j - 1), 1.0 / dy2});
+                }
+                if (j < ny_ - 2)
+                {
+                    p_triplets.push_back({idx, Idx(i, j + 1), 1.0 / dy2});
+                }
 
                 // Матрица завихренности (Неявная диффузионная часть)
                 // (I - dt * nu * Laplace) omega = ...
-                o_triplets.push_back({idx, idx, 1.0 + 2.0 * dt_ * cfg_.nu / dx2 + 2.0 * dt_ * cfg_.nu / dy2});
-                o_triplets.push_back({idx, Idx(i - 1, j), -dt_ * cfg_.nu / dx2});
-                o_triplets.push_back({idx, Idx(i + 1, j), -dt_ * cfg_.nu / dx2});
-                o_triplets.push_back({idx, Idx(i, j - 1), -dt_ * cfg_.nu / dy2});
-                o_triplets.push_back({idx, Idx(i, j + 1), -dt_ * cfg_.nu / dy2});
+                o_triplets.push_back({idx, idx, 1.0 + 2.0 * omega_ax + 2.0 * omega_ay});
+                if (i > 1)
+                {
+                    o_triplets.push_back({idx, Idx(i - 1, j), -omega_ax});
+                }
+                if (i < nx_ - 2)
+                {
+                    o_triplets.push_back({idx, Idx(i + 1, j), -omega_ax});
+                }
+                if (j > 1)
+                {
+                    o_triplets.push_back({idx, Idx(i, j - 1), -omega_ay});
+                }
+                if (j < ny_ - 2)
+                {
+                    o_triplets.push_back({idx, Idx(i, j + 1), -omega_ay});
+                }
             }
         }
     }
@@ -94,6 +124,15 @@ Solver::Solver(const Config& cfg) : cfg_(cfg)
 
     poisson_ldlt_.compute(poisson_matrix_);
     omega_ldlt_.compute(omega_matrix_);
+
+    if (poisson_ldlt_.info() != Eigen::Success)
+    {
+        throw std::runtime_error("Poisson factorization failed.");
+    }
+    if (omega_ldlt_.info() != Eigen::Success)
+    {
+        throw std::runtime_error("Omega factorization failed.");
+    }
 }
 
 Solver::Solver(const std::string& config_path) : Solver(LoadConfigFromFile(config_path))
@@ -104,58 +143,86 @@ void Solver::solve()
 {
     double dx2 = dx_ * dx_;
     double dy2 = dy_ * dy_;
+    const double omega_ax = dt_ * cfg_.nu / dx2;
+    const double omega_ay = dt_ * cfg_.nu / dy2;
+
+    auto apply_omega_boundary_from_psi = [&]()
+    {
+        for (int i = 0; i < nx_; ++i)
+        {
+            // omega = Delta(psi)
+            omega_[Idx(i, 0)]       =  2.0 * psi_[Idx(i, 1)] / dy2 - 2.0 * cfg_.u[2] / dy_;           // bottom
+            omega_[Idx(i, ny_ - 1)] =  2.0 * psi_[Idx(i, ny_ - 2)] / dy2 + 2.0 * cfg_.u[0] / dy_;     // top
+        }
+        for (int j = 1; j < ny_ - 1; ++j)
+        {
+            omega_[Idx(0, j)]       =  2.0 * psi_[Idx(1, j)] / dx2 + 2.0 * cfg_.v[3] / dx_;           // left
+            omega_[Idx(nx_ - 1, j)] =  2.0 * psi_[Idx(nx_ - 2, j)] / dx2 - 2.0 * cfg_.v[1] / dx_;     // right
+        }
+    };
+
+    // Инициализируем граничную завихренность из текущей psi (начальный момент).
+    apply_omega_boundary_from_psi();
 
     for (step_ = 1; step_ <= cfg_.n_time_steps; ++step_)
     {
         time_ += dt_;
 
-        // 1. Формирование правой части для уравнения завихренности
+        // 1. Граничные значения omega считаем известными (Dirichlet) из предыдущего шага.
         for (int i = 0; i < nx_; ++i)
         {
             for (int j = 0; j < ny_; ++j)
             {
-                int idx = Idx(i, j);
-
-                // Граничные условия для завихренности (Формула Тома)
-                if (j == 0) // Bottom
+                if (i == 0 || i == nx_ - 1 || j == 0 || j == ny_ - 1)
                 {
-                    rhs_omega_[idx] = -2.0 * psi_[Idx(i, 1)] / dy2 + 2.0 * cfg_.u[2] / dy_;
-                }
-                else if (j == ny_ - 1) // Top
-                {
-                    rhs_omega_[idx] = -2.0 * psi_[Idx(i, ny_ - 2)] / dy2 - 2.0 * cfg_.u[0] / dy_;
-                }
-                else if (i == 0) // Left
-                {
-                    rhs_omega_[idx] = -2.0 * psi_[Idx(1, j)] / dx2 - 2.0 * cfg_.v[3] / dx_;
-                }
-                else if (i == nx_ - 1) // Right
-                {
-                    rhs_omega_[idx] = -2.0 * psi_[Idx(nx_ - 2, j)] / dx2 + 2.0 * cfg_.v[1] / dx_;
-                }
-                // Внутренние узлы (явный перенос и источники)
-                else
-                {
-                    double d_omega_dx = (omega_[Idx(i + 1, j)] - omega_[Idx(i - 1, j)]) / (2.0 * dx_);
-                    double d_omega_dy = (omega_[Idx(i, j + 1)] - omega_[Idx(i, j - 1)]) / (2.0 * dy_);
-                    
-                    double conv = u_[idx] * d_omega_dx + v_[idx] * d_omega_dy;
-                    
-                    double forcing = 0.0;
-                    if (g_)
-                    {
-                        forcing = g_(i * dx_, j * dy_); // Координаты узла
-                    }
-
-                    rhs_omega_[idx] = omega_[idx] - dt_ * conv + dt_ * forcing;
+                    rhs_omega_[Idx(i, j)] = omega_[Idx(i, j)];
                 }
             }
         }
 
-        // 2. Решение уравнения для завихренности
-        omega_ = omega_ldlt_.solve(rhs_omega_);
+        // 2. Внутренние узлы RHS: неявная диффузия + источник g (без конвекции).
+        for (int i = 1; i < nx_ - 1; ++i)
+        {
+            for (int j = 1; j < ny_ - 1; ++j)
+            {
+                int idx = Idx(i, j);
 
-        // 3. Формирование правой части для функции тока
+                double forcing = 0.0;
+                if (g_)
+                {
+                    forcing = g_(i * dx_, j * dy_, time_);
+                }
+
+                double boundary_term = 0.0;
+                if (i == 1)
+                {
+                    boundary_term += omega_ax * rhs_omega_[Idx(0, j)];
+                }
+                if (i == nx_ - 2)
+                {
+                    boundary_term += omega_ax * rhs_omega_[Idx(nx_ - 1, j)];
+                }
+                if (j == 1)
+                {
+                    boundary_term += omega_ay * rhs_omega_[Idx(i, 0)];
+                }
+                if (j == ny_ - 2)
+                {
+                    boundary_term += omega_ay * rhs_omega_[Idx(i, ny_ - 1)];
+                }
+
+                rhs_omega_[idx] = omega_[idx] + dt_ * forcing + boundary_term;
+            }
+        }
+
+        // 3. Решение уравнения для завихренности
+        omega_ = omega_ldlt_.solve(rhs_omega_);
+        if (omega_ldlt_.info() != Eigen::Success)
+        {
+            throw std::runtime_error("Omega linear solve failed.");
+        }
+
+        // 4. Формирование правой части для функции тока
         for (int i = 0; i < nx_; ++i)
         {
             for (int j = 0; j < ny_; ++j)
@@ -167,15 +234,22 @@ void Solver::solve()
                 }
                 else
                 {
-                    rhs_psi_[idx] = -omega_[idx];
+                    rhs_psi_[idx] = omega_[idx];
                 }
             }
         }
 
-        // 4. Решение уравнения Пуассона для функции тока
+        // 5. Решение уравнения Пуассона для функции тока
         psi_ = poisson_ldlt_.solve(rhs_psi_);
+        if (poisson_ldlt_.info() != Eigen::Success)
+        {
+            throw std::runtime_error("Poisson linear solve failed.");
+        }
 
-        // 5. Обновление полей скорости во внутренних узлах
+        // 6. Обновление граничной omega по новой psi (формула Тома).
+        apply_omega_boundary_from_psi();
+
+        // 7. Обновление полей скорости во внутренних узлах
         for (int i = 1; i < nx_ - 1; ++i)
         {
             for (int j = 1; j < ny_ - 1; ++j)
@@ -287,5 +361,38 @@ void Solver::ValidateConfig() const
     if (cfg_.nx <= 2 || cfg_.ny <= 2)
     {
         throw std::runtime_error("Grid size too small for reasonable discretization.");
+    }
+
+    // В текущей постановке psi задана константой на всех стенках (непроницаемые стенки).
+    // Это требует нулевой нормальной скорости на границе.
+    const double eps = 1e-12;
+    const bool has_nonzero_normal_velocity =
+        std::abs(cfg_.v[0]) > eps || // top normal component
+        std::abs(cfg_.v[2]) > eps || // bottom normal component
+        std::abs(cfg_.u[1]) > eps || // right normal component
+        std::abs(cfg_.u[3]) > eps;   // left normal component
+
+    if (has_nonzero_normal_velocity)
+    {
+        throw std::runtime_error(
+            "Incompatible boundary conditions for current psi-omega setup: "
+            "normal boundary velocity must be zero "
+            "(require v[top]=v[bottom]=0 and u[right]=u[left]=0).");
+    }
+
+    const double dx = 1.0 / (cfg_.nx - 1);
+    const double dy = 1.0 / (cfg_.ny - 1);
+    const double min_h2 = std::min(dx * dx, dy * dy);
+    const double dt = cfg_.t_max / cfg_.n_time_steps;
+    const double alpha = cfg_.nu * dt / min_h2;
+    constexpr double alpha_limit = 0.25;
+
+    if (alpha > alpha_limit)
+    {
+        throw std::runtime_error(
+            "Time step is too large for this psi-omega discretization with Thom boundary update: "
+            "nu*dt/min(h^2) = " + std::to_string(alpha) +
+            " > " + std::to_string(alpha_limit) +
+            ". Increase n_time_steps or reduce t_max.");
     }
 }
