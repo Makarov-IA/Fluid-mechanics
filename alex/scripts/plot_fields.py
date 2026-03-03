@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import csv
 import glob
 import os
@@ -16,7 +15,8 @@ except Exception:
 
 plt.switch_backend("Agg")
 
-FIELDS = ["psi", "omega", "u", "v"]
+# Оставляем только psi и omega для основных графиков
+FIELDS = ["psi", "omega"]
 COL_IDX = {"psi": 2, "omega": 3, "u": 4, "v": 5}
 
 
@@ -76,8 +76,8 @@ def collect_limits(csv_files):
         arr = np.concatenate(values[name])
 
         # Robust limits: ignore extreme outliers that flatten dynamics in colormap.
-        q_low = float(np.percentile(arr, 1.0))
-        q_high = float(np.percentile(arr, 99.0))
+        q_low = float(np.percentile(arr, 5.0))
+        q_high = float(np.percentile(arr, 95.0))
 
         if name in ("omega", "psi"):
             # For signed fields, keep symmetric scale around 0 for visual consistency.
@@ -101,16 +101,45 @@ def collect_limits(csv_files):
 def make_frame(csv_path, out_png, limits):
     rows = read_rows(csv_path)
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10), constrained_layout=True)
-    axes = axes.ravel()
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
     base = os.path.splitext(os.path.basename(csv_path))[0]
     fig.suptitle(base)
 
+    # Строим сетки для всех полей
+    grid_psi, xs, ys = build_grid(rows, COL_IDX["psi"])
+    grid_omega, _, _ = build_grid(rows, COL_IDX["omega"])
+    grid_u, _, _ = build_grid(rows, COL_IDX["u"])
+    grid_v, _, _ = build_grid(rows, COL_IDX["v"])
+
+    X, Y = np.meshgrid(xs, ys)
+    skip = 12
+
+    # Автоматический подбор factor на основе масштаба скоростей
+    speed = np.sqrt(grid_u**2 + grid_v**2)
+    max_speed = np.max(speed)
+    
+    # Размер ячейки сетки
+    dx = xs[1] - xs[0] if len(xs) > 1 else 1.0
+    dy = ys[1] - ys[0] if len(ys) > 1 else 1.0
+    grid_spacing = min(dx, dy)
+    
+    # Желаемая длина самой большой стрелки (доля от размера ячейки)
+    # Например, 0.4 означает 40% от размера ячейки
+    desired_arrow_fraction = 0.4
+    
+    # scale в quiver: чем больше, тем мельче стрелки
+    quiver_scale = 20
+    
+    factor = 1.1
+
     for ax, field in zip(axes, FIELDS):
-        grid, xs, ys = build_grid(rows, COL_IDX[field])
+        grid = grid_psi if field == "psi" else grid_omega
         vmin, vmax = limits[field]
 
+        # Тепловая карта
         im = ax.imshow(
             grid,
             origin="lower",
@@ -120,10 +149,32 @@ def make_frame(csv_path, out_png, limits):
             vmin=vmin,
             vmax=vmax,
         )
-        ax.set_title(field)
+        ax.set_title(f"{field} field")
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+        # Векторы скорости с адаптивным factor
+        ax.quiver(
+            X[::skip, ::skip],
+            Y[::skip, ::skip],
+            factor * grid_u[::skip, ::skip],
+            factor * grid_v[::skip, ::skip],
+            color="black",
+            pivot="mid",
+            width=0.005,
+            headwidth=5.0,
+            headlength=6.0,
+            headaxislength=5.0,
+            angles="xy",
+            scale_units="xy",
+            scale=quiver_scale,
+            alpha=0.9
+        )
+        
+        ax.set_xlim(xs[0], xs[-1])
+        ax.set_ylim(ys[0], ys[-1])
+        ax.set_aspect("equal")
 
     fig.savefig(out_png, dpi=160)
     plt.close(fig)
