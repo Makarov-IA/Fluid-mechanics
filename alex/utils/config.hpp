@@ -25,6 +25,7 @@ struct Config
     double t_max = 1.0;
     int n_time_steps = 1000;
     double nu = 1e-3;
+    double steady_tolerance = 1e-10;
 
     // Order: (up, right, down, left)
     std::array<double, 4> u{0.0, 0.0, 0.0, 0.0};
@@ -166,6 +167,10 @@ inline Config LoadConfigFromFile(const std::string& path)
             {
                 cfg.nu = std::stod(value);
             }
+            else if (key == "steady_tolerance")
+            {
+                cfg.steady_tolerance = std::stod(value);
+            }
             else if (key == "u")
             {
                 cfg.u = ParseArray4(value, "u");
@@ -239,6 +244,10 @@ inline Config LoadConfigFromFile(const std::string& path)
     if (cfg.nu <= 0.0)
     {
         throw std::runtime_error("nu must be > 0");
+    }
+    if (cfg.steady_tolerance <= 0.0)
+    {
+        throw std::runtime_error("steady_tolerance must be > 0");
     }
     if (cfg.save_every_step <= 0)
     {

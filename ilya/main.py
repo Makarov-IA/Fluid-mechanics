@@ -166,8 +166,8 @@ class StokesMACLib:
 if __name__ == "__main__":
 
     # Re ~= U_lid * L / nu = 20 for U_lid = 1, L = 1.
-    nx, ny, n_steps = 201, 201, 20000
-    lx, ly, lt = 1.0, 1.0, 2.0
+    nx, ny, n_steps = 101, 101, 200000
+    lx, ly, lt = 1.0, 1.0, 20.0
     nu = 1 / 1000
     dt = lt / n_steps  # 1e-4
     frame_every = 200
