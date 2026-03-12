@@ -56,6 +56,13 @@ private:
 
     void apply_velocity_bc(std::vector<double>& u, std::vector<double>& v) const;
     void compute_divergence(const std::vector<double>& u, const std::vector<double>& v, std::vector<double>& div) const;
+    double u_with_bc(const std::vector<double>& u, int i, int j) const;
+    double v_with_bc(const std::vector<double>& v, int i, int j) const;
+    void compute_advection(
+        const std::vector<double>& u,
+        const std::vector<double>& v,
+        std::vector<double>& adv_u,
+        std::vector<double>& adv_v) const;
     void build_monolithic_system();
 };
 

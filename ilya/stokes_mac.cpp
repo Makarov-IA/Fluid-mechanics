@@ -65,6 +65,78 @@ void StokesMac2D::compute_divergence(const std::vector<double>& u, const std::ve
     }
 }
 
+double StokesMac2D::u_with_bc(const std::vector<double>& u, int i, int j) const {
+    if (i < 0 || i > nx_) {
+        throw std::out_of_range("u_with_bc: i out of range");
+    }
+    if (j >= 0 && j < ny_) {
+        return u[u_idx(i, j)];
+    }
+    if (j == -1) {
+        return -u[u_idx(i, 0)];
+    }
+    if (j == ny_) {
+        if (i == 0 || i == nx_) {
+            return 0.0;
+        }
+        return 2.0 * u_lid_top_ - u[u_idx(i, ny_ - 1)];
+    }
+    throw std::out_of_range("u_with_bc: j out of range");
+}
+
+double StokesMac2D::v_with_bc(const std::vector<double>& v, int i, int j) const {
+    if (j < 0 || j > ny_) {
+        throw std::out_of_range("v_with_bc: j out of range");
+    }
+    if (i >= 0 && i < nx_) {
+        return v[v_idx(i, j)];
+    }
+    if (i == -1) {
+        return -v[v_idx(0, j)];
+    }
+    if (i == nx_) {
+        return -v[v_idx(nx_ - 1, j)];
+    }
+    throw std::out_of_range("v_with_bc: i out of range");
+}
+
+void StokesMac2D::compute_advection(
+    const std::vector<double>& u,
+    const std::vector<double>& v,
+    std::vector<double>& adv_u,
+    std::vector<double>& adv_v) const {
+    adv_u.assign(u.size(), 0.0);
+    adv_v.assign(v.size(), 0.0);
+
+    for (int j = 0; j < ny_; ++j) {
+        for (int i = 1; i < nx_; ++i) {
+            const double u_here = u[u_idx(i, j)];
+            const double du_dx = (u[u_idx(i + 1, j)] - u[u_idx(i - 1, j)]) / (2.0 * dx_);
+            const double du_dy = (u_with_bc(u, i, j + 1) - u_with_bc(u, i, j - 1)) / (2.0 * dy_);
+            const double v_at_u = 0.25 * (
+                v[v_idx(i - 1, j)] +
+                v[v_idx(i, j)] +
+                v[v_idx(i - 1, j + 1)] +
+                v[v_idx(i, j + 1)]);
+            adv_u[u_idx(i, j)] = u_here * du_dx + v_at_u * du_dy;
+        }
+    }
+
+    for (int j = 1; j < ny_; ++j) {
+        for (int i = 0; i < nx_; ++i) {
+            const double v_here = v[v_idx(i, j)];
+            const double dv_dx = (v_with_bc(v, i + 1, j) - v_with_bc(v, i - 1, j)) / (2.0 * dx_);
+            const double dv_dy = (v[v_idx(i, j + 1)] - v[v_idx(i, j - 1)]) / (2.0 * dy_);
+            const double u_at_v = 0.25 * (
+                u[u_idx(i, j - 1)] +
+                u[u_idx(i + 1, j - 1)] +
+                u[u_idx(i, j)] +
+                u[u_idx(i + 1, j)]);
+            adv_v[v_idx(i, j)] = u_at_v * dv_dx + v_here * dv_dy;
+        }
+    }
+}
+
 void StokesMac2D::build_monolithic_system() {
     using Trip = Eigen::Triplet<double>;
     std::vector<Trip> t;
@@ -181,6 +253,9 @@ void StokesMac2D::build_monolithic_system() {
 double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
     const double inv_dt = 1.0 / dt_;
     Eigen::VectorXd rhs = Eigen::VectorXd::Zero(total_unknowns_);
+    std::vector<double> adv_u(u_.size(), 0.0);
+    std::vector<double> adv_v(v_.size(), 0.0);
+    compute_advection(u_, v_, adv_u, adv_v);
 
     // u-equations RHS 
     for (int j = 0; j < ny_; ++j) {
@@ -190,7 +265,7 @@ double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
             const double x = static_cast<double>(i) * dx_;
             const double force = (f1 != nullptr) ? f1(x, y, t) : 0.0;
 
-            double b = inv_dt * u_[u_idx(i, j)] + force;
+            double b = inv_dt * u_[u_idx(i, j)] - adv_u[u_idx(i, j)] + force;
             if (j == ny_ - 1) {
                 // Top moving lid contributes via ghost: u_ghost = 2*U_lid - u_inside.
                 b += 2.0 * nu_ * u_lid_top_ / dy2_;
@@ -206,7 +281,7 @@ double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
             const int row = v_unknown_idx(i, j);
             const double x = (static_cast<double>(i) + 0.5) * dx_;
             const double force = (f2 != nullptr) ? f2(x, y, t) : 0.0;
-            rhs[row] = inv_dt * v_[v_idx(i, j)] + force;
+            rhs[row] = inv_dt * v_[v_idx(i, j)] - adv_v[v_idx(i, j)] + force;
         }
     }
 
