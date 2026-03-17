@@ -1,14 +1,11 @@
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
-#include <array>
 #include <cctype>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-
-#include "functions/g_functions.hpp"
 
 struct LogInfo
 {
@@ -22,16 +19,12 @@ struct Config
     int nx = 128;
     int ny = 128;
 
+    std::string mode = "fixed_steps";
     double t_max = 1.0;
     int n_time_steps = 1000;
-    double nu = 1e-3;
+    int Re = 100;
     double steady_tolerance = 1e-10;
 
-    // Order: (up, right, down, left)
-    std::array<double, 4> u{0.0, 0.0, 0.0, 0.0};
-    std::array<double, 4> v{0.0, 0.0, 0.0, 0.0};
-
-    int g_function_id = 0;
     int save_every_step = 100;
     std::string save_dir = "data/results";
 
@@ -79,36 +72,9 @@ inline bool ParseBool(const std::string& value)
     throw std::runtime_error("Invalid bool value: " + value);
 }
 
-inline std::array<double, 4> ParseArray4(const std::string& value, const std::string& key)
+inline bool IsValidMode(const std::string& mode)
 {
-    std::string cleaned = Trim(value);
-    if (!cleaned.empty() && cleaned.front() == '[' && cleaned.back() == ']')
-    {
-        cleaned = cleaned.substr(1, cleaned.size() - 2);
-    }
-
-    std::array<double, 4> out{};
-    std::stringstream ss(cleaned);
-    std::string token;
-    int idx = 0;
-
-    while (std::getline(ss, token, ','))
-    {
-        if (idx >= 4)
-        {
-            throw std::runtime_error("Field " + key + " must contain exactly 4 numbers");
-        }
-
-        out[static_cast<std::size_t>(idx)] = std::stod(Trim(token));
-        ++idx;
-    }
-
-    if (idx != 4)
-    {
-        throw std::runtime_error("Field " + key + " must contain exactly 4 numbers");
-    }
-
-    return out;
+    return mode == "fixed_steps" || mode == "till_converges";
 }
 
 inline Config LoadConfigFromFile(const std::string& path)
@@ -120,8 +86,6 @@ inline Config LoadConfigFromFile(const std::string& path)
     }
 
     Config cfg;
-    bool has_u = false;
-    bool has_v = false;
 
     std::string raw_line;
     int line_no = 0;
@@ -147,7 +111,11 @@ inline Config LoadConfigFromFile(const std::string& path)
 
         try
         {
-            if (key == "nx")
+            if (key == "mode")
+            {
+                cfg.mode = value;
+            }
+            else if (key == "nx")
             {
                 cfg.nx = std::stoi(value);
             }
@@ -163,27 +131,13 @@ inline Config LoadConfigFromFile(const std::string& path)
             {
                 cfg.n_time_steps = std::stoi(value);
             }
-            else if (key == "nu")
+            else if (key == "Re")
             {
-                cfg.nu = std::stod(value);
+                cfg.Re = std::stoi(value);
             }
             else if (key == "steady_tolerance")
             {
                 cfg.steady_tolerance = std::stod(value);
-            }
-            else if (key == "u")
-            {
-                cfg.u = ParseArray4(value, "u");
-                has_u = true;
-            }
-            else if (key == "v")
-            {
-                cfg.v = ParseArray4(value, "v");
-                has_v = true;
-            }
-            else if (key == "g_function_id")
-            {
-                cfg.g_function_id = std::stoi(value);
             }
             else if (key == "save_every_step")
             {
@@ -216,13 +170,9 @@ inline Config LoadConfigFromFile(const std::string& path)
         }
     }
 
-    if (!has_u)
+    if (!IsValidMode(cfg.mode))
     {
-        throw std::runtime_error("Missing required key: u");
-    }
-    if (!has_v)
-    {
-        throw std::runtime_error("Missing required key: v");
+        throw std::runtime_error("mode must be either fixed_steps or till_converges");
     }
 
     if (cfg.nx <= 1)
@@ -241,10 +191,6 @@ inline Config LoadConfigFromFile(const std::string& path)
     {
         throw std::runtime_error("n_time_steps must be > 0");
     }
-    if (cfg.nu <= 0.0)
-    {
-        throw std::runtime_error("nu must be > 0");
-    }
     if (cfg.steady_tolerance <= 0.0)
     {
         throw std::runtime_error("steady_tolerance must be > 0");
@@ -262,14 +208,7 @@ inline Config LoadConfigFromFile(const std::string& path)
         throw std::runtime_error("log_info.print_every_step must be > 0");
     }
 
-    (void)GetGFunctionById(cfg.g_function_id);
-
     return cfg;
-}
-
-inline GFunction BuildGFunction(const Config& cfg)
-{
-    return GetGFunctionById(cfg.g_function_id);
 }
 
 #endif // CONFIG_HPP

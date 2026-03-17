@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "solver/v1/solver.hpp"
+#include "solver/solver.hpp"
 
 int main(int argc, char* argv[])
 {
@@ -20,10 +20,6 @@ int main(int argc, char* argv[])
 
         Solver solver(cfg);
         solver.solve();
-
-        std::cout << "[Main] Done. step=" << solver.step()
-                  << " time=" << solver.time() << "\n";
-        std::cout << "[Main] Results directory: " << cfg.save_dir << "\n";
 
         return 0;
     }

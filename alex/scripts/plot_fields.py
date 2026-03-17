@@ -18,12 +18,11 @@ plt.switch_backend("Agg")
 plt.ioff()
 
 COL_IDX = {"psi": 2, "omega": 3, "u": 4, "v": 5}
-FRAME_KINDS = ("quiver", "streamlines", "psi", "omega")
+FRAME_KINDS = ("psi", "omega", "streamplot")
 GIF_NAMES = {
-    "quiver": "velocity_quiver.gif",
-    "streamlines": "streamlines.gif",
     "psi": "psi.gif",
-    "omega": "vorticity.gif",
+    "omega": "omega.gif",
+    "streamplot": "streamplot.gif",
 }
 
 
@@ -126,7 +125,7 @@ def collect_plot_stats(csv_files):
         "psi_levels": symmetric_levels(psi_all),
         "omega_levels": symmetric_levels(omega_all),
         "speed_levels": np.linspace(0.0, speed_max, 25),
-        "arrow_factor": 0.10 * domain_span / speed_max,
+        "arrow_factor": 0.075 * domain_span / speed_max,
         "quiver_scale": 1.0,
     }
 
@@ -146,77 +145,20 @@ def save_figure(fig, out_png):
     plt.close(fig)
 
 
-def build_quiver_frame(grids, xs, ys, out_png, stats, base):
+def build_scalar_frame_with_quiver(
+    grids, xs, ys, out_png, field, levels, cmap, colorbar_label, title, stats, base
+):
     fig, ax = plt.subplots(figsize=(6.2, 6.0))
     try:
         xs_plot = regularize_axis(xs)
         ys_plot = regularize_axis(ys)
-        speed = np.hypot(grids["u"], grids["v"])
         x_grid, y_grid = np.meshgrid(xs_plot, ys_plot)
         skip = max(1, min(len(xs_plot), len(ys_plot)) // 24)
-
-        bg = ax.contourf(
-            x_grid, y_grid, speed, levels=stats["speed_levels"], cmap="viridis"
-        )
-        ax.quiver(
-            x_grid[::skip, ::skip],
-            y_grid[::skip, ::skip],
-            stats["arrow_factor"] * grids["u"][::skip, ::skip],
-            stats["arrow_factor"] * grids["v"][::skip, ::skip],
-            color="#111111",
-            pivot="mid",
-            width=0.0035,
-            headwidth=4.0,
-            headlength=5.0,
-            headaxislength=4.5,
-            angles="xy",
-            scale_units="xy",
-            scale=stats["quiver_scale"],
-        )
-        fig.colorbar(bg, ax=ax, label="|u|")
-        style_axes(ax, f"Velocity field, {base}", xs_plot, ys_plot)
-        save_figure(fig, out_png)
-    finally:
-        plt.close(fig)
-
-
-def build_streamlines_frame(grids, xs, ys, out_png, stats, base):
-    fig, ax = plt.subplots(figsize=(6.2, 6.0))
-    try:
-        xs_plot = regularize_axis(xs)
-        ys_plot = regularize_axis(ys)
-        speed = np.hypot(grids["u"], grids["v"])
-        x_grid, y_grid = np.meshgrid(xs_plot, ys_plot)
-
-        bg = ax.contourf(
-            x_grid, y_grid, speed, levels=stats["speed_levels"], cmap="viridis"
-        )
-        ax.streamplot(
-            xs_plot,
-            ys_plot,
-            grids["u"],
-            grids["v"],
-            color="white",
-            linewidth=0.8,
-            density=1.5,
-            arrowsize=0.9,
-        )
-        fig.colorbar(bg, ax=ax, label="|u|")
-        style_axes(ax, f"Velocity field and streamlines, {base}", xs_plot, ys_plot)
-        save_figure(fig, out_png)
-    finally:
-        plt.close(fig)
-
-
-def build_scalar_frame(grids, xs, ys, out_png, field, levels, cmap, title):
-    fig, ax = plt.subplots(figsize=(6.2, 6.0))
-    try:
-        xs_plot = regularize_axis(xs)
-        ys_plot = regularize_axis(ys)
-        x_grid, y_grid = np.meshgrid(xs_plot, ys_plot)
         scalar = grids[field]
 
-        contourf = ax.contourf(x_grid, y_grid, scalar, levels=levels, cmap=cmap)
+        contourf = ax.contourf(
+            x_grid, y_grid, scalar, levels=levels, cmap=cmap
+        )
         ax.contour(
             x_grid,
             y_grid,
@@ -224,10 +166,56 @@ def build_scalar_frame(grids, xs, ys, out_png, field, levels, cmap, title):
             levels=levels,
             colors="black",
             linewidths=0.25,
-            alpha=0.7,
+            alpha=0.45,
         )
-        fig.colorbar(contourf, ax=ax, label=field)
-        style_axes(ax, title, xs_plot, ys_plot)
+        ax.quiver(
+            x_grid[::skip, ::skip],
+            y_grid[::skip, ::skip],
+            stats["arrow_factor"] * grids["u"][::skip, ::skip],
+            stats["arrow_factor"] * grids["v"][::skip, ::skip],
+            color="white",
+            pivot="mid",
+            width=0.0032,
+            headwidth=4.0,
+            headlength=5.0,
+            headaxislength=4.5,
+            angles="xy",
+            scale_units="xy",
+            scale=stats["quiver_scale"],
+            alpha=0.9,
+        )
+        fig.colorbar(contourf, ax=ax, label=colorbar_label)
+        style_axes(ax, f"{title}, {base}", xs_plot, ys_plot)
+        save_figure(fig, out_png)
+    finally:
+        plt.close(fig)
+
+
+def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
+    fig, ax = plt.subplots(figsize=(6.2, 6.0))
+    try:
+        xs_plot = regularize_axis(xs)
+        ys_plot = regularize_axis(ys)
+        speed = np.hypot(grids["u"], grids["v"])
+        x_grid, y_grid = np.meshgrid(xs_plot, ys_plot)
+
+        bg = ax.contourf(
+            x_grid, y_grid, speed, levels=stats["speed_levels"], cmap="viridis"
+        )
+        stream = ax.streamplot(
+            xs_plot,
+            ys_plot,
+            grids["u"],
+            grids["v"],
+            color=speed,
+            cmap="plasma",
+            linewidth=0.8 + 1.6 * speed / max(float(np.max(speed)), 1e-12),
+            density=1.45,
+            arrowsize=1.0,
+        )
+        stream.arrows.set_color("white")
+        fig.colorbar(bg, ax=ax, label="|u|")
+        style_axes(ax, f"Streamplot, {base}", xs_plot, ys_plot)
         save_figure(fig, out_png)
     finally:
         plt.close(fig)
@@ -239,12 +227,8 @@ def make_frame_task(task):
     grids, xs, ys = build_grids(rows)
     base = os.path.splitext(os.path.basename(csv_path))[0]
 
-    if kind == "quiver":
-        build_quiver_frame(grids, xs, ys, out_png, stats, base)
-    elif kind == "streamlines":
-        build_streamlines_frame(grids, xs, ys, out_png, stats, base)
-    elif kind == "psi":
-        build_scalar_frame(
+    if kind == "psi":
+        build_scalar_frame_with_quiver(
             grids,
             xs,
             ys,
@@ -252,19 +236,27 @@ def make_frame_task(task):
             "psi",
             stats["psi_levels"],
             "coolwarm",
-            f"Stream function contour, {base}",
+            "psi",
+            "Psi field",
+            stats,
+            base,
         )
     elif kind == "omega":
-        build_scalar_frame(
+        build_scalar_frame_with_quiver(
             grids,
             xs,
             ys,
             out_png,
             "omega",
             stats["omega_levels"],
-            "coolwarm",
-            f"Vorticity contour, {base}",
+            "RdBu_r",
+            "omega",
+            "Omega field",
+            stats,
+            base,
         )
+    elif kind == "streamplot":
+        build_streamplot_frame(grids, xs, ys, out_png, stats, base)
     else:
         raise RuntimeError(f"Unknown frame kind: {kind}")
 
@@ -289,15 +281,24 @@ def make_gif(frame_paths, gif_path, duration_ms=120):
 
 def read_residual_history(path):
     times = []
+    psi_residuals = []
+    omega_residuals = []
     max_residuals = []
 
     with open(path, "r", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             times.append(float(row["time"]))
+            psi_residuals.append(float(row.get("psi_res", row["max_residual"])))
+            omega_residuals.append(float(row.get("omega_res", row["max_residual"])))
             max_residuals.append(float(row["max_residual"]))
 
-    return np.array(times, dtype=float), np.array(max_residuals, dtype=float)
+    return (
+        np.array(times, dtype=float),
+        np.array(psi_residuals, dtype=float),
+        np.array(omega_residuals, dtype=float),
+        np.array(max_residuals, dtype=float),
+    )
 
 
 def build_residual_plot(results_dir, plot_root):
@@ -305,19 +306,41 @@ def build_residual_plot(results_dir, plot_root):
     if not os.path.exists(residual_path):
         return
 
-    times, residuals = read_residual_history(residual_path)
-    if residuals.size == 0:
+    times, psi_residuals, omega_residuals, max_residuals = read_residual_history(residual_path)
+    if max_residuals.size == 0:
         return
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
-    ax.semilogy(times, np.maximum(residuals, 1e-30), color="#0d47a1", linewidth=1.6)
-    ax.set_title("Max stationary residual vs pseudo time")
+    ax.semilogy(
+        times,
+        np.maximum(psi_residuals, 1e-30),
+        color="#1565c0",
+        linewidth=1.6,
+        label="psi_res",
+    )
+    ax.semilogy(
+        times,
+        np.maximum(omega_residuals, 1e-30),
+        color="#c62828",
+        linewidth=1.6,
+        label="omega_res",
+    )
+    ax.semilogy(
+        times,
+        np.maximum(max_residuals, 1e-30),
+        color="#2e7d32",
+        linewidth=1.2,
+        linestyle="--",
+        label="max_residual",
+    )
+    ax.set_title("Residual history")
     ax.set_xlabel("t")
-    ax.set_ylabel("max residual")
+    ax.set_ylabel("residual")
     ax.grid(True, which="both", alpha=0.35)
+    ax.legend()
     fig.tight_layout()
 
-    out_png = os.path.join(plot_root, "steady_residual.png")
+    out_png = os.path.join(plot_root, "residual_history.png")
     fig.savefig(out_png, dpi=180)
     plt.close(fig)
     print(f"[plot] png: {out_png}")
