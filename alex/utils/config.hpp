@@ -22,6 +22,7 @@ struct Config
     std::string mode = "fixed_steps";
     double t_max = 1.0;
     int n_time_steps = 1000;
+    double dt = -1.0;
     int Re = 100;
     double steady_tolerance = 1e-10;
 
@@ -74,7 +75,7 @@ inline bool ParseBool(const std::string& value)
 
 inline bool IsValidMode(const std::string& mode)
 {
-    return mode == "fixed_steps" || mode == "till_converges";
+    return mode == "fixed_steps" || mode == "fixed_dt_steps" || mode == "till_converges";
 }
 
 inline Config LoadConfigFromFile(const std::string& path)
@@ -131,6 +132,10 @@ inline Config LoadConfigFromFile(const std::string& path)
             {
                 cfg.n_time_steps = std::stoi(value);
             }
+            else if (key == "dt")
+            {
+                cfg.dt = std::stod(value);
+            }
             else if (key == "Re")
             {
                 cfg.Re = std::stoi(value);
@@ -172,7 +177,7 @@ inline Config LoadConfigFromFile(const std::string& path)
 
     if (!IsValidMode(cfg.mode))
     {
-        throw std::runtime_error("mode must be either fixed_steps or till_converges");
+        throw std::runtime_error("mode must be one of: fixed_steps, fixed_dt_steps, till_converges");
     }
 
     if (cfg.nx <= 1)
@@ -190,6 +195,14 @@ inline Config LoadConfigFromFile(const std::string& path)
     if (cfg.n_time_steps <= 0)
     {
         throw std::runtime_error("n_time_steps must be > 0");
+    }
+    if (cfg.dt == 0.0)
+    {
+        throw std::runtime_error("dt must not be 0");
+    }
+    if (cfg.mode == "fixed_dt_steps" && cfg.dt < 0.0)
+    {
+        throw std::runtime_error("dt must be set for fixed_dt_steps mode");
     }
     if (cfg.steady_tolerance <= 0.0)
     {

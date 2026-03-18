@@ -7,7 +7,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 
 try:
     from tqdm import tqdm
@@ -16,14 +15,11 @@ except Exception:
 
 plt.switch_backend("Agg")
 plt.ioff()
+plt.rcParams["path.simplify"] = True
+plt.rcParams["agg.path.chunksize"] = 10000
 
 COL_IDX = {"psi": 2, "omega": 3, "u": 4, "v": 5}
 FRAME_KINDS = ("psi", "omega", "streamplot")
-GIF_NAMES = {
-    "psi": "psi.gif",
-    "omega": "omega.gif",
-    "streamplot": "streamplot.gif",
-}
 
 
 def step_sort_key(path):
@@ -87,44 +83,24 @@ def regularize_axis(axis):
     return np.linspace(float(axis[0]), float(axis[-1]), axis.size)
 
 
-def symmetric_levels(values, n_levels=61, percentile=98.0):
+def symmetric_levels(values, n_levels=31, percentile=98.0):
     bound = float(np.percentile(np.abs(values), percentile))
     bound = max(bound, 1e-12)
     return np.linspace(-bound, bound, n_levels)
 
 
-def collect_plot_stats(csv_files):
-    psi_values = []
-    omega_values = []
-    speed_values = []
-    domain_span = 1.0
-
-    iterator = csv_files
-    if tqdm is not None:
-        iterator = tqdm(csv_files, desc="scan limits", unit="file")
-
-    for idx, path in enumerate(iterator):
-        rows = read_rows(path)
-        grids, xs, ys = build_grids(rows)
-
-        if idx == 0:
-            x_span = xs[-1] - xs[0] if len(xs) > 1 else 1.0
-            y_span = ys[-1] - ys[0] if len(ys) > 1 else 1.0
-            domain_span = max(min(x_span, y_span), 1e-12)
-
-        psi_values.append(grids["psi"].ravel())
-        omega_values.append(grids["omega"].ravel())
-        speed_values.append(np.hypot(grids["u"], grids["v"]).ravel())
-
-    psi_all = np.concatenate(psi_values)
-    omega_all = np.concatenate(omega_values)
-    speed_all = np.concatenate(speed_values)
-    speed_max = max(float(np.max(speed_all)), 1e-12)
+def build_frame_stats(grids, xs, ys):
+    x_span = xs[-1] - xs[0] if len(xs) > 1 else 1.0
+    y_span = ys[-1] - ys[0] if len(ys) > 1 else 1.0
+    domain_span = max(min(x_span, y_span), 1e-12)
+    speed = np.hypot(grids["u"], grids["v"])
+    speed_max = max(float(np.max(speed)), 1e-12)
 
     return {
-        "psi_levels": symmetric_levels(psi_all),
-        "omega_levels": symmetric_levels(omega_all),
-        "speed_levels": np.linspace(0.0, speed_max, 25),
+        "psi_limits": symmetric_levels(grids["psi"]),
+        "omega_limits": symmetric_levels(grids["omega"]),
+        "speed_limits": (0.0, speed_max),
+        "speed": speed,
         "arrow_factor": 0.075 * domain_span / speed_max,
         "quiver_scale": 1.0,
     }
@@ -140,13 +116,13 @@ def style_axes(ax, title, xs, ys):
 
 
 def save_figure(fig, out_png):
-    fig.tight_layout()
+    fig.subplots_adjust(left=0.10, right=0.92, bottom=0.10, top=0.92)
     fig.savefig(out_png, dpi=160)
     plt.close(fig)
 
 
 def build_scalar_frame_with_quiver(
-    grids, xs, ys, out_png, field, levels, cmap, colorbar_label, title, stats, base
+    grids, xs, ys, out_png, field, cmap, colorbar_label, title, stats, base
 ):
     fig, ax = plt.subplots(figsize=(6.2, 6.0))
     try:
@@ -155,6 +131,7 @@ def build_scalar_frame_with_quiver(
         x_grid, y_grid = np.meshgrid(xs_plot, ys_plot)
         skip = max(1, min(len(xs_plot), len(ys_plot)) // 24)
         scalar = grids[field]
+        levels = stats[f"{field}_limits"]
 
         contourf = ax.contourf(
             x_grid, y_grid, scalar, levels=levels, cmap=cmap
@@ -196,11 +173,11 @@ def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
     try:
         xs_plot = regularize_axis(xs)
         ys_plot = regularize_axis(ys)
-        speed = np.hypot(grids["u"], grids["v"])
+        speed = stats["speed"]
         x_grid, y_grid = np.meshgrid(xs_plot, ys_plot)
 
         bg = ax.contourf(
-            x_grid, y_grid, speed, levels=stats["speed_levels"], cmap="viridis"
+            x_grid, y_grid, speed, levels=31, cmap="viridis"
         )
         stream = ax.streamplot(
             xs_plot,
@@ -221,62 +198,49 @@ def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
         plt.close(fig)
 
 
-def make_frame_task(task):
-    kind, csv_path, out_png, stats = task
+def make_frame_set_task(task):
+    csv_path, frames_dir = task
     rows = read_rows(csv_path)
     grids, xs, ys = build_grids(rows)
+    stats = build_frame_stats(grids, xs, ys)
     base = os.path.splitext(os.path.basename(csv_path))[0]
+    outputs = {}
 
-    if kind == "psi":
-        build_scalar_frame_with_quiver(
-            grids,
-            xs,
-            ys,
-            out_png,
-            "psi",
-            stats["psi_levels"],
-            "coolwarm",
-            "psi",
-            "Psi field",
-            stats,
-            base,
-        )
-    elif kind == "omega":
-        build_scalar_frame_with_quiver(
-            grids,
-            xs,
-            ys,
-            out_png,
-            "omega",
-            stats["omega_levels"],
-            "RdBu_r",
-            "omega",
-            "Omega field",
-            stats,
-            base,
-        )
-    elif kind == "streamplot":
-        build_streamplot_frame(grids, xs, ys, out_png, stats, base)
-    else:
-        raise RuntimeError(f"Unknown frame kind: {kind}")
-
-    return kind, out_png
-
-
-def make_gif(frame_paths, gif_path, duration_ms=120):
-    if len(frame_paths) < 2:
-        return False
-
-    images = [Image.open(path).convert("P", palette=Image.ADAPTIVE) for path in frame_paths]
-    images[0].save(
-        gif_path,
-        save_all=True,
-        append_images=images[1:],
-        optimize=True,
-        duration=duration_ms,
-        loop=0,
+    psi_png = os.path.join(frames_dir, f"{base}_psi.png")
+    build_scalar_frame_with_quiver(
+        grids,
+        xs,
+        ys,
+        psi_png,
+        "psi",
+        "coolwarm",
+        "psi",
+        "Psi field",
+        stats,
+        base,
     )
-    return True
+    outputs["psi"] = psi_png
+
+    omega_png = os.path.join(frames_dir, f"{base}_omega.png")
+    build_scalar_frame_with_quiver(
+        grids,
+        xs,
+        ys,
+        omega_png,
+        "omega",
+        "RdBu_r",
+        "omega",
+        "Omega field",
+        stats,
+        base,
+    )
+    outputs["omega"] = omega_png
+
+    stream_png = os.path.join(frames_dir, f"{base}_streamplot.png")
+    build_streamplot_frame(grids, xs, ys, stream_png, stats, base)
+    outputs["streamplot"] = stream_png
+
+    return outputs
 
 
 def read_residual_history(path):
@@ -347,17 +311,15 @@ def build_residual_plot(results_dir, plot_root):
 
 
 def main():
-    if len(sys.argv) < 4:
-        print("Usage: plot_fields.py <results_dir> <frames_dir> <gifs_dir>")
+    if len(sys.argv) < 3:
+        print("Usage: plot_fields.py <results_dir> <frames_dir>")
         sys.exit(1)
 
     results_dir = os.path.abspath(os.path.normpath(sys.argv[1]))
     frames_dir = os.path.abspath(os.path.normpath(sys.argv[2]))
-    gifs_dir = os.path.abspath(os.path.normpath(sys.argv[3]))
     plot_root = os.path.dirname(frames_dir)
 
     os.makedirs(frames_dir, exist_ok=True)
-    os.makedirs(gifs_dir, exist_ok=True)
     os.makedirs(plot_root, exist_ok=True)
 
     csv_files = sorted(
@@ -367,42 +329,21 @@ def main():
     if not csv_files:
         raise RuntimeError(f"No result_*.csv found in {results_dir}")
 
-    stats = collect_plot_stats(csv_files)
-
-    tasks = []
-    for csv_path in csv_files:
-        base = os.path.splitext(os.path.basename(csv_path))[0]
-        for kind in FRAME_KINDS:
-            out_png = os.path.join(frames_dir, f"{base}_{kind}.png")
-            tasks.append((kind, csv_path, out_png, stats))
-
-    frame_paths = {kind: [] for kind in FRAME_KINDS}
+    tasks = [(csv_path, frames_dir) for csv_path in csv_files]
     workers = max(1, min(os.cpu_count() or 1, len(tasks)))
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(make_frame_task, task) for task in tasks]
+        futures = [executor.submit(make_frame_set_task, task) for task in tasks]
 
         progress_total = len(futures)
         if tqdm is not None:
             with tqdm(total=progress_total, desc="render frames", unit="frame") as bar:
                 for fut in as_completed(futures):
-                    kind, out_png = fut.result()
-                    frame_paths[kind].append(out_png)
+                    fut.result()
                     bar.update(1)
         else:
             for fut in as_completed(futures):
-                kind, out_png = fut.result()
-                frame_paths[kind].append(out_png)
-
-    for kind in FRAME_KINDS:
-        frame_paths[kind].sort(key=step_sort_key)
-
-    for kind, gif_name in GIF_NAMES.items():
-        gif_path = os.path.join(gifs_dir, gif_name)
-        if make_gif(frame_paths[kind], gif_path):
-            print(f"[plot] gif: {gif_path}")
-        else:
-            print(f"[plot] Only one frame for {kind}: GIF skipped")
+                fut.result()
 
     build_residual_plot(results_dir, plot_root)
 

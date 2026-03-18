@@ -19,6 +19,9 @@ Solver::Solver(const Config& cfg) : cfg_(cfg)
     dx_ = 1.0 / (nx_ - 1);
     dy_ = 1.0 / (ny_ - 1);
     dt_ = t_max_ / n_time_steps_;
+    if (cfg_.mode == "fixed_dt_steps" && cfg_.dt > 0.0) {
+        dt_ = cfg_.dt;
+    }
 
     Re_ = cfg.Re;
 
@@ -220,6 +223,9 @@ void Solver::solveOmega() {
 
         Eigen::VectorXd d = g_.col(j);
 
+        d(0) = omega_(0, j);
+        d(nx_ - 1) = omega_(nx_ - 1, j);
+
         Progonka(a_x, b_x, c_x, d, res_x);
         g_.col(j) = res_x;
     }
@@ -288,6 +294,31 @@ void Solver::solve() {
     residual_history << "step,time,psi_res,omega_res,max_residual\n";
 
     if (cfg_.mode == "fixed_steps") {
+        for (int i = 0; i < n_time_steps_; ++i) {
+            step_ = i;
+            residual_ = Residual{};
+            const auto step_start_time = std::chrono::steady_clock::now();
+            step();
+            const double step_elapsed_time = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - step_start_time).count();
+            if (i % cfg_.save_every_step == 0) {
+                updateVelocities();
+                save(cfg_.save_dir);
+                const double pseudo_time = (step_ + 1) * dt_;
+                const double max_residual = std::max(residual_.psi_res, residual_.omega_res);
+                residual_history << step_ << ','
+                                 << pseudo_time << ','
+                                 << residual_.psi_res << ','
+                                 << residual_.omega_res << ','
+                                 << max_residual << '\n';
+                std::cout << "\r[Solver] step=" << step_
+                          << " psi_res=" << residual_.psi_res
+                          << " omega_res=" << residual_.omega_res
+                          << " step_time=" << step_elapsed_time << " s"
+                          << std::flush;
+            }
+        }
+    } else if (cfg_.mode == "fixed_dt_steps") {
         for (int i = 0; i < n_time_steps_; ++i) {
             step_ = i;
             residual_ = Residual{};
