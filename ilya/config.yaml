@@ -1,0 +1,36 @@
+# Lid-driven cavity: 2-D incompressible Navier-Stokes on a staggered MAC grid.
+#
+# Top wall moves at u_lid; all other walls are no-slip.
+
+domain:
+  lx: 1.0
+  ly: 1.0
+
+grid:
+  nx: 55
+  ny: 55
+
+physics:
+  nu: 0.0001    # kinematic viscosity
+  u_lid: 1.0   # top-wall (lid) velocity
+
+time:
+  t_end: 50.0
+  n_steps: 100000 
+
+output:
+  # Snapshots captured per simulation-second.
+  # Total frames = capture_fps * t_end
+  # Example: capture_fps=4, t_end=50 → 200 snapshots
+  capture_fps: 10
+
+  # GIF playback speed: simulation-seconds shown per real second.
+  gif_playback_speed: 1.0
+
+  # Console progress line every N solver steps.
+  print_every: 10000
+
+convergence:
+  # Stop early when max velocity change between consecutive snapshots
+  # drops below this threshold (set to 0 to always run all n_steps).
+  tol: 1.0e-6
