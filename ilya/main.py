@@ -22,7 +22,8 @@ import io
 import multiprocessing as mp
 import os
 import platform
-from concurrent.futures import ProcessPoolExecutor
+import threading
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -178,18 +179,27 @@ def _find_solver_lib(directory: Path) -> Path:
 
 def _check_stability(cfg: SimConfig) -> None:
     """
-    Check CFL stability for the explicit convection term.
+    Check CFL and cell-Peclet stability for the explicit central-difference
+    convection term.
 
-    The only stability constraint for IMEX is on explicit convection:
-        CFL = u_lid * dt / min(dx, dy)
-    Viscosity is implicit so there is no viscous CFL constraint.
+    CFL constraint (explicit convection):
+        CFL = u_lid * dt / min(dx, dy)  < 1
+
+    Cell-Peclet constraint (central differences, explicit):
+        Pe = u_lid * min(dx, dy) / nu  < 2
+    Violation of Pe < 2 means the explicit central scheme lacks sufficient
+    numerical diffusion to suppress high-wavenumber growth at this Re/grid.
     """
     dx = cfg.lx / cfg.nx
     dy = cfg.ly / cfg.ny
-    cfl = cfg.u_lid * cfg.dt / min(dx, dy)
+    h = min(dx, dy)
+    cfl = cfg.u_lid * cfg.dt / h
+    pe  = cfg.u_lid * h / cfg.nu
 
     # Minimum n_steps needed for CFL <= 0.5
-    n_steps_safe = int(cfg.t_end * cfg.u_lid / (0.5 * min(dx, dy))) + 1
+    n_steps_safe = int(cfg.t_end * cfg.u_lid / (0.5 * h)) + 1
+    # Minimum nx/ny needed for Pe <= 2
+    nx_safe = int(cfg.u_lid * max(cfg.lx, cfg.ly) / (2.0 * cfg.nu)) + 1
 
     if cfl > 1.0:
         raise RuntimeError(
@@ -203,6 +213,16 @@ def _check_stability(cfg: SimConfig) -> None:
         )
     else:
         console.print(f"  CFL = [green]{cfl:.4f}[/green]  (stable)")
+
+    if pe > 2.0:
+        console.print(
+            f"[red]✗  Pe  = {pe:.2f} > 2.0 — явные центральные разности "
+            f"нестабильны при Re={cfg.re:.0f}.\n"
+            f"     Для Pe ≤ 2 нужна сетка >= {nx_safe}×{nx_safe} "
+            f"(текущая: {cfg.nx}×{cfg.ny}).[/red]"
+        )
+    else:
+        console.print(f"  Pe  = [green]{pe:.4f}[/green]  (stable)")
 
 
 class StokesMACLib:
@@ -411,14 +431,15 @@ def run_simulation(
                     )
                 )
 
-                if cfg.conv_tol > 0 and prev_uc is not None:
+                vel_change: float | None = None
+                if prev_uc is not None:
                     vel_change = float(
                         max(
                             np.max(np.abs(uc - prev_uc)),
                             np.max(np.abs(vc - prev_vc)),
                         )
                     )
-                    if vel_change < cfg.conv_tol:
+                    if cfg.conv_tol > 0 and vel_change < cfg.conv_tol:
                         progress.update(task, info=f"converged Δu={vel_change:.1e}")
                         progress.stop()
                         console.print(
@@ -431,10 +452,11 @@ def run_simulation(
                 prev_uc = uc
                 prev_vc = vc
 
+                du_str = f"  Δu={vel_change:.2e}" if vel_change is not None else ""
                 progress.update(
                     task,
                     advance=1,
-                    info=f"t={t_now:.2f}  |div|={divs[-1]:.2e}",
+                    info=f"t={t_now:.2f}  |div|={divs[-1]:.2e}{du_str}",
                 )
 
     if not converged:
@@ -636,24 +658,32 @@ def _draw_vorticity(ax, fig, snap, Xc, Yc, omega_levels) -> None:
 
 
 # ---------------------------------------------------------------------------
-# GIF rendering (worker process)
+# GIF rendering (worker processes)
 # ---------------------------------------------------------------------------
 
+_GIF_SPECS = [
+    ("streamlines", "stokes_streamlines.gif"),
+    ("pressure",    "stokes_pressure.gif"),
+    ("vorticity",   "stokes_vorticity.gif"),
+]
 
-def _gif_worker(task: dict) -> str:
-    """
-    Render every frame for one GIF type, assemble, and write the file.
 
-    Runs in a spawned worker process. No temp files — frames go to BytesIO.
+def _gif_worker(task: dict) -> tuple[str, str]:
     """
-    kind: str = task["kind"]
-    lx, ly = task["lx"], task["ly"]
-    xc: np.ndarray = task["xc"]
-    yc: np.ndarray = task["yc"]
-    Xc: np.ndarray = task["Xc"]
-    Yc: np.ndarray = task["Yc"]
+    Render every frame for one GIF type, assemble, and write to disk.
+    Runs in a spawned worker process.
+    Sends task["kind"] to task["queue"] after every rendered frame.
+    Returns (kind, gif_path).
+    """
+    kind: str               = task["kind"]
+    queue                   = task["queue"]
+    lx, ly                  = task["lx"], task["ly"]
+    xc: np.ndarray          = task["xc"]
+    yc: np.ndarray          = task["yc"]
+    Xc: np.ndarray          = task["Xc"]
+    Yc: np.ndarray          = task["Yc"]
     snapshots: list[Snapshot] = task["snapshots"]
-    frame_duration_ms: int = task["frame_duration_ms"]
+    frame_duration_ms: int  = task["frame_duration_ms"]
 
     gif_frames: list[Image.Image] = []
 
@@ -675,6 +705,7 @@ def _gif_worker(task: dict) -> str:
         _style_axes(ax, title, lx, ly)
         fig.tight_layout()
         gif_frames.append(_fig_to_pil(fig, dpi=110))
+        queue.put(kind)  # notify main process: one more frame done
 
     gif_path = Path(task["gif_path"])
     gif_path.parent.mkdir(parents=True, exist_ok=True)
@@ -686,7 +717,7 @@ def _gif_worker(task: dict) -> str:
             duration=frame_duration_ms,
             loop=0,
         )
-    return str(gif_path)
+    return kind, str(gif_path)
 
 
 def render_gifs(
@@ -700,50 +731,96 @@ def render_gifs(
     ol: np.ndarray,
     speed_max: float,
 ) -> dict[str, Path]:
-    """Render all four GIFs in parallel. Returns mapping kind → Path."""
+    """Render all GIFs in parallel worker processes with per-GIF progress bars."""
     Xc, Yc = np.meshgrid(xc, yc, indexing="ij")
     fps = cfg.gif_fps(len(snapshots))
     frame_duration_ms = int(1000.0 / fps)
+    n_frames = len(snapshots)
+
+    # Shared queue: workers push kind-strings, listener thread updates Rich bars.
+    manager = mp.Manager()
+    queue = manager.Queue()
 
     common = {
-        "lx": cfg.lx,
-        "ly": cfg.ly,
-        "xc": xc,
-        "yc": yc,
-        "Xc": Xc,
-        "Yc": Yc,
+        "queue": queue,
+        "lx": cfg.lx, "ly": cfg.ly,
+        "xc": xc, "yc": yc, "Xc": Xc, "Yc": Yc,
         "frame_duration_ms": frame_duration_ms,
         "snapshots": snapshots,
     }
     tasks = [
-        {
-            **common,
-            "kind": "streamlines",
-            "gif_path": str(out_dir / "stokes_streamlines.gif"),
-            "speed_levels": sl,
-        },
-        {
-            **common,
-            "kind": "pressure",
-            "gif_path": str(out_dir / "stokes_pressure.gif"),
-            "p_levels": pl,
-        },
-        {
-            **common,
-            "kind": "vorticity",
-            "gif_path": str(out_dir / "stokes_vorticity.gif"),
-            "omega_levels": ol,
-        },
+        {**common, "kind": "streamlines",
+         "gif_path": str(out_dir / "stokes_streamlines.gif"), "speed_levels": sl},
+        {**common, "kind": "pressure",
+         "gif_path": str(out_dir / "stokes_pressure.gif"),    "p_levels": pl},
+        {**common, "kind": "vorticity",
+         "gif_path": str(out_dir / "stokes_vorticity.gif"),   "omega_levels": ol},
     ]
 
-    n_workers = min(len(tasks), os.cpu_count() or 1)
-    with ProcessPoolExecutor(
-        max_workers=n_workers,
-        mp_context=mp.get_context("spawn"),
-    ) as pool:
-        gif_paths = list(pool.map(_gif_worker, tasks))
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[bold cyan]{task.description:<14}"),
+        BarColumn(bar_width=38),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    )
 
-    return {t["kind"]: Path(p) for t, p in zip(tasks, gif_paths)}
+    results: dict[str, Path] = {}
+
+    with progress:
+        bars = {
+            kind: progress.add_task(kind, total=n_frames)
+            for kind, _ in _GIF_SPECS
+        }
+
+        # Background thread: drains the queue and advances progress bars.
+        def _listener() -> None:
+            received = 0
+            total = n_frames * len(tasks)
+            while received < total:
+                kind = queue.get()
+                progress.update(bars[kind], advance=1)
+                received += 1
+
+        listener = threading.Thread(target=_listener, daemon=True)
+        listener.start()
+
+        n_workers = min(len(tasks), os.cpu_count() or 1)
+        with ProcessPoolExecutor(
+            max_workers=n_workers,
+            mp_context=mp.get_context("spawn"),
+        ) as pool:
+            for kind, path in pool.map(_gif_worker, tasks):
+                results[kind] = Path(path)
+
+        listener.join()
+
+    manager.shutdown()
+    return results
+
+
+# ---------------------------------------------------------------------------
+# CSV export for verification
+# ---------------------------------------------------------------------------
+
+
+def save_state_csv(
+    snap: Snapshot, xc: np.ndarray, yc: np.ndarray, path: Path
+) -> None:
+    """Save final snapshot (cell-centred x, y, u, v, omega) as CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    X, Y = np.meshgrid(xc, yc, indexing="ij")
+    data = np.column_stack(
+        [X.ravel(), Y.ravel(),
+         snap.uc.ravel(), snap.vc.ravel(),
+         snap.omega.ravel()]
+    )
+    np.savetxt(
+        path, data, delimiter=",",
+        header="x,y,u,v,omega", comments="", fmt="%.8f",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -911,9 +988,10 @@ def main() -> None:
     with console.status("[cyan]Saving plots…[/cyan]"):
         div_path = save_divergence_plot(t_hist, div_hist, out_dir)
         final_paths = save_final_figure(snapshots[-1], cfg, xc, yc, out_dir, sl, pl, ol)
+        csv_path = out_dir / "final_state" / "state.csv"
+        save_state_csv(snapshots[-1], xc, yc, csv_path)
 
-    with console.status("[cyan]Rendering GIFs…[/cyan]"):
-        gif_paths = render_gifs(snapshots, cfg, out_dir, xc, yc, sl, pl, ol, speed_max)
+    gif_paths = render_gifs(snapshots, cfg, out_dir, xc, yc, sl, pl, ol, speed_max)
 
     # ── Saved files table ─────────────────────────────────────────────────
     out_tbl = Table(show_header=False, box=None, padding=(0, 2))
