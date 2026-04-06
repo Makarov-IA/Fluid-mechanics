@@ -13,9 +13,7 @@
 //   u[i,j]  at vertical faces (i=0..Nx,   j=0..Ny-1)  — size (Nx+1) × Ny
 //   v[i,j]  at horiz. faces   (i=0..Nx-1, j=0..Ny  )  — size  Nx    × (Ny+1)
 //
-// Lid-driven cavity boundary conditions:
-//   Top wall   : u = u_lid, v = 0
-//   Other walls: u = 0,     v = 0
+// Boundary conditions are set via set_bc_arrays(); all default to zero.
 //   Pressure gauge: p[0,0] = 0  (removes the constant-pressure null space)
 //
 // Time integration — IMEX (semi-implicit):
@@ -30,8 +28,7 @@ class StokesMac2D {
 public:
     using ForceFn = double (*)(double x, double y, double t);
 
-    StokesMac2D(int nx, int ny, double lx, double ly, double nu, double dt,
-                double u_lid = 1.0);
+    StokesMac2D(int nx, int ny, double lx, double ly, double nu, double dt);
 
     // Advance one time step; returns max|div u| after the update.
     [[nodiscard]] double step(double t, ForceFn f1, ForceFn f2);
@@ -92,7 +89,6 @@ private:
     const double dt_;
     const double dx_, dy_;
     const double dx2_, dy2_;   // dx², dy²
-    const double u_lid_;       // top-wall velocity
 
     // -----------------------------------------------------------------------
     // Field storage (flat row-major arrays)

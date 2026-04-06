@@ -1,6 +1,5 @@
-# Lid-driven cavity: 2-D incompressible Navier-Stokes on a staggered MAC grid.
-#
-# Top wall moves at u_lid; all other walls are no-slip.
+# 2-D incompressible Navier-Stokes on a staggered MAC grid.
+# Boundary conditions and body forces are configured below.
 
 domain:
   lx: 1.0
@@ -11,8 +10,7 @@ grid:
   ny: 105
 
 physics:
-  nu: 0.01     # kinematic viscosity  →  Re = u_lid / nu = 100
-  u_lid: 1.0   # top-wall (lid) velocity
+  nu: 0.0001     # kinematic viscosity
 
 time:
   t_end: 50.0

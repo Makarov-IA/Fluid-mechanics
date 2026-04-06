@@ -13,13 +13,12 @@
 // ---------------------------------------------------------------------------
 
 StokesMac2D::StokesMac2D(int nx, int ny, double lx, double ly,
-                         double nu, double dt, double u_lid)
+                         double nu, double dt)
     : nx_(nx), ny_(ny),
       lx_(lx), ly_(ly),
       nu_(nu), dt_(dt),
       dx_(lx / nx), dy_(ly / ny),
       dx2_(dx_ * dx_), dy2_(dy_ * dy_),
-      u_lid_(u_lid),
       p_(static_cast<size_t>(nx)   *  ny,      0.0),
       u_(static_cast<size_t>(nx+1) *  ny,      0.0),
       v_(static_cast<size_t>(nx)   * (ny + 1), 0.0),
@@ -40,8 +39,8 @@ StokesMac2D::StokesMac2D(int nx, int ny, double lx, double ly,
     rhs_.setZero(total_unknowns_);
     sol_.setZero(total_unknowns_);
 
-    // Boundary condition arrays — default: lid-driven cavity (top u = u_lid, rest 0)
-    bc_u_top_.assign(nx_ - 1, u_lid_);
+    // Boundary condition arrays — all zero by default (set via set_bc_arrays)
+    bc_u_top_.assign(nx_ - 1, 0.0);
     bc_u_bot_.assign(nx_ - 1, 0.0);
     bc_v_left_.assign(ny_ - 1, 0.0);
     bc_v_right_.assign(ny_ - 1, 0.0);
@@ -169,9 +168,9 @@ void StokesMac2D::build_monolithic_system() {
     //   (1/dt − ν∇²) u  +  ∂p/∂x  =  rhs_u
     //
     // Ghost-node treatment at horizontal walls:
-    //   j=0    (bottom): u_ghost(i,-1) = −u(i,0)          → 3ν/dy² on diagonal
-    //   j=Ny-1 (top):    u_ghost(i,Ny) = 2·u_lid−u(i,Ny-1) → 3ν/dy² on diagonal;
-    //                    lid term  2·ν·u_lid/dy²  moves to RHS
+    //   j=0    (bottom): u_ghost(i,-1) = −u(i,0)                → 3ν/dy² on diagonal
+    //   j=Ny-1 (top):    u_ghost(i,Ny) = 2·bc_u_top−u(i,Ny-1) → 3ν/dy² on diagonal;
+    //                    wall term  2·ν·bc_u_top/dy²  moves to RHS
     // -------------------------------------------------------------------
     for (int j = 0; j < ny_; ++j) {
         for (int i = 1; i < nx_; ++i) {

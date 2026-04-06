@@ -1,11 +1,9 @@
-"""2-D Navier-Stokes lid-driven cavity solver — Python driver.
+"""2-D Navier-Stokes solver — Python driver.
 
 Physical setup
 --------------
 Domain     : [0, Lx] × [0, Ly]  (unit square by default)
-Top wall   : u = u_lid,  v = 0
-Other walls: u = 0,      v = 0
-Reynolds   : Re = u_lid * min(Lx, Ly) / nu
+Boundary conditions and body forces are set via config.yaml expressions.
 
 Numerical method
 ----------------
@@ -24,7 +22,7 @@ import multiprocessing as mp
 import os
 import platform
 import threading
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -108,7 +106,6 @@ class SimConfig:
     nx: int = 25
     ny: int = 25
     nu: float = 1e-3
-    u_lid: float = 1.0
     t_end: float = 30.0
     n_steps: int = 300_000
     video_fps: float = 30.0   # output video frame rate (fps of saved .mp4)
@@ -121,8 +118,8 @@ class SimConfig:
 
     # Boundary-condition expressions.
     # Ghost-correction walls (u_top/u_bot: function of x; v_left/v_right: of y).
-    # None → use u_lid for u_top, 0 for everything else.
-    bc_u_top: str | None = None  # u at top wall.    None → use u_lid
+    # None → 0 everywhere.
+    bc_u_top: str | None = None  # u at top wall.    None → 0
     bc_u_bot: str | None = None  # u at bottom wall. None → 0
     bc_v_left: str | None = None  # v at left wall.   None → 0
     bc_v_right: str | None = None  # v at right wall.  None → 0
@@ -165,7 +162,6 @@ class SimConfig:
             nx=d["grid"]["nx"],
             ny=d["grid"]["ny"],
             nu=d["physics"]["nu"],
-            u_lid=d["physics"]["u_lid"],
             t_end=d["time"]["t_end"],
             n_steps=d["time"]["n_steps"],
             video_fps=d["output"]["video_fps"],
@@ -203,14 +199,13 @@ class SimConfig:
             r = _eval_expr(expr, **kw)
             return np.broadcast_to(r, default.shape).copy()
 
-        u_lid_arr = np.full(self.nx - 1, self.u_lid)
         zeros_u_int = np.zeros(self.nx - 1)
         zeros_v_int = np.zeros(self.ny - 1)
         zeros_u_face = np.zeros(self.ny)
         zeros_v_face = np.zeros(self.nx)
 
         return {
-            "u_top": _ev(self.bc_u_top, u_lid_arr, x=x_u_int, y=self.ly),
+            "u_top": _ev(self.bc_u_top, zeros_u_int, x=x_u_int, y=self.ly),
             "u_bot": _ev(self.bc_u_bot, zeros_u_int, x=x_u_int, y=0.0),
             "v_left": _ev(self.bc_v_left, zeros_v_int, x=0.0, y=y_v_int),
             "v_right": _ev(self.bc_v_right, zeros_v_int, x=self.lx, y=y_v_int),
@@ -271,11 +266,6 @@ class SimConfig:
         """
         return self.video_fps / self.video_speed
 
-    @property
-    def re(self) -> float:
-        return self.u_lid * min(self.lx, self.ly) / self.nu
-
-
 # ---------------------------------------------------------------------------
 # Snapshot
 # ---------------------------------------------------------------------------
@@ -323,53 +313,6 @@ def _find_solver_lib(directory: Path) -> Path:
     print(f"[warning] Using alternative library name: {lib.name}")
     return lib
 
-
-def _check_stability(cfg: SimConfig) -> None:
-    """
-    Check CFL and cell-Peclet stability for the explicit central-difference
-    convection term.
-
-    CFL constraint (explicit convection):
-        CFL = u_lid * dt / min(dx, dy)  < 1
-
-    Cell-Peclet constraint (central differences, explicit):
-        Pe = u_lid * min(dx, dy) / nu  < 2
-    Violation of Pe < 2 means the explicit central scheme lacks sufficient
-    numerical diffusion to suppress high-wavenumber growth at this Re/grid.
-    """
-    dx = cfg.lx / cfg.nx
-    dy = cfg.ly / cfg.ny
-    h = min(dx, dy)
-    cfl = cfg.u_lid * cfg.dt / h
-    pe = cfg.u_lid * h / cfg.nu
-
-    # Minimum n_steps needed for CFL <= 0.5
-    n_steps_safe = int(cfg.t_end * cfg.u_lid / (0.5 * h)) + 1
-    # Minimum nx/ny needed for Pe <= 2
-    nx_safe = int(cfg.u_lid * max(cfg.lx, cfg.ly) / (2.0 * cfg.nu)) + 1
-
-    if cfl > 1.0:
-        raise RuntimeError(
-            f"CFL = {cfl:.3f} > 1.0 — решение гарантированно расходится.\n"
-            f"  Увеличь n_steps до >= {n_steps_safe} (текущее: {cfg.n_steps})."
-        )
-    if cfl > 0.5:
-        console.print(
-            f"[yellow]⚠  CFL = {cfl:.3f} > 0.5 — возможна нестабильность "
-            f"при Re={cfg.re:.0f}.  Рекомендуется n_steps >= {n_steps_safe}.[/yellow]"
-        )
-    else:
-        console.print(f"  CFL = [green]{cfl:.4f}[/green]  (stable)")
-
-    if pe > 2.0:
-        console.print(
-            f"[red]✗  Pe  = {pe:.2f} > 2.0 — явные центральные разности "
-            f"нестабильны при Re={cfg.re:.0f}.\n"
-            f"     Для Pe ≤ 2 нужна сетка >= {nx_safe}×{nx_safe} "
-            f"(текущая: {cfg.nx}×{cfg.ny}).[/red]"
-        )
-    else:
-        console.print(f"  Pe  = [green]{pe:.4f}[/green]  (stable)")
 
 
 class StokesMACLib:
@@ -1148,8 +1091,8 @@ def save_final_figure(
     panel_dir.mkdir(parents=True, exist_ok=True)
 
     suptitle = (
-        f"Lid-driven cavity — final state   "
-        f"Re = {cfg.re:.0f},  grid {cfg.nx}×{cfg.ny},  t = {snap.t:.2f}"
+        f"Final state   "
+        f"ν = {cfg.nu},  grid {cfg.nx}×{cfg.ny},  t = {snap.t:.2f}"
     )
 
     panels = [
@@ -1209,9 +1152,7 @@ def main() -> None:
     tbl.add_column(style="white")
     tbl.add_row("Domain", f"{cfg.lx} × {cfg.ly}")
     tbl.add_row("Grid", f"{cfg.nx} × {cfg.ny}")
-    tbl.add_row("Re", f"{cfg.re:.0f}")
     tbl.add_row("ν", f"{cfg.nu}")
-    tbl.add_row("u_lid", f"{cfg.u_lid}")
     tbl.add_row("t_end", f"{cfg.t_end}")
     tbl.add_row("dt", f"{cfg.dt:.2e}")
     tbl.add_row("n_steps", f"{cfg.n_steps:,}")
@@ -1221,9 +1162,7 @@ def main() -> None:
     tbl.add_row("video_speed", f"{cfg.video_speed}× real time")
     conv = f"{cfg.conv_tol:.1e}" if cfg.conv_tol > 0 else "disabled"
     tbl.add_row("conv_tol", conv)
-    console.print(Panel(tbl, title="[bold]Lid-driven cavity[/bold]", expand=False))
-
-    _check_stability(cfg)
+    console.print(Panel(tbl, title="[bold]Simulation config[/bold]", expand=False))
 
     lib_path = _find_solver_lib(Path(__file__).parent)
     console.print(f"  Library: [dim]{lib_path.name}[/dim]")
