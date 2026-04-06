@@ -1,6 +1,49 @@
-DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+DIR     := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+PYTHON  := $(DIR).venv/bin/python
+VENV    := $(DIR).venv
 
-github: 
-	git add ${DIR}/..
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+
+compile:
+	bash $(DIR)compile.sh
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+
+run: compile
+	cd $(DIR) && $(PYTHON) main.py
+
+run-no-compile:
+	cd $(DIR) && $(PYTHON) main.py
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+
+venv:
+	python3 -m venv $(VENV)
+	$(VENV)/bin/pip install -r $(DIR)requirements.txt
+
+# ---------------------------------------------------------------------------
+# Clean
+# ---------------------------------------------------------------------------
+
+clean-plots:
+	rm -rf $(DIR)plots
+
+clean-lib:
+	rm -f $(DIR)solver.dylib $(DIR)solver.so $(DIR)solver.dll
+
+clean: clean-plots clean-lib
+
+# ---------------------------------------------------------------------------
+# Git
+# ---------------------------------------------------------------------------
+
+github:
+	git add $(DIR)/..
 	git commit -m "Default msg"
 	git push
