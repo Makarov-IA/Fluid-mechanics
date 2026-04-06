@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ctypes as ct
 import io
+import math
 import multiprocessing as mp
 import os
 import platform
@@ -27,6 +28,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import imageio
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -56,6 +58,43 @@ _Force3D = ct.CFUNCTYPE(ct.c_double, ct.c_double, ct.c_double, ct.c_double)
 
 
 # ---------------------------------------------------------------------------
+# Expression evaluator
+# ---------------------------------------------------------------------------
+
+_EVAL_NS: dict = {
+    "sin": np.sin,
+    "cos": np.cos,
+    "tan": np.tan,
+    "exp": np.exp,
+    "log": np.log,
+    "sqrt": np.sqrt,
+    "abs": np.abs,
+    "tanh": np.tanh,
+    "sinh": np.sinh,
+    "cosh": np.cosh,
+    "pi": np.pi,
+    "e": np.e,
+    "np": np,
+}
+
+
+def _eval_expr(expr: str, **kwargs) -> np.ndarray:
+    """Evaluate a math expression string in a numpy-aware namespace.
+
+    The expression may reference: x, y, t (passed as kwargs), plus all
+    standard numpy math functions (sin, cos, exp, pi, …).
+    Scalar results are broadcast to match the shape of the first array kwarg.
+    """
+    result = eval(expr, {"__builtins__": {}}, {**_EVAL_NS, **kwargs})  # noqa: S307
+    return np.asarray(result, dtype=np.float64)
+
+
+def _is_zero_expr(expr: str | None) -> bool:
+    """Return True if the expression is trivially zero."""
+    return expr is None or expr.strip() in ("0", "0.0", "0.", "+0", "-0")
+
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -72,10 +111,26 @@ class SimConfig:
     u_lid: float = 1.0
     t_end: float = 30.0
     n_steps: int = 300_000
-    capture_fps: float = 4.0         # snapshots per simulation-second
-    gif_playback_speed: float = 2.0  # simulation-s shown per real-s
-    print_every: int = 10_000
-    conv_tol: float = 1e-6           # 0 = disabled
+    video_fps: float = 30.0   # output video frame rate (fps of saved .mp4)
+    video_speed: float = 1.0  # sim-seconds per real second (>1 = faster, <1 = slower)
+    conv_tol: float = 1e-6  # 0 = disabled
+
+    # Body-force expressions (functions of x, y, t).  "0.0" → no forcing.
+    forcing_u: str = "0.0"
+    forcing_v: str = "0.0"
+
+    # Boundary-condition expressions.
+    # Ghost-correction walls (u_top/u_bot: function of x; v_left/v_right: of y).
+    # None → use u_lid for u_top, 0 for everything else.
+    bc_u_top: str | None = None  # u at top wall.    None → use u_lid
+    bc_u_bot: str | None = None  # u at bottom wall. None → 0
+    bc_v_left: str | None = None  # v at left wall.   None → 0
+    bc_v_right: str | None = None  # v at right wall.  None → 0
+    # Dirichlet face walls (u_left/u_right: function of y; v_bot/v_top: of x).
+    bc_u_left: str | None = None  # u at left  wall. None → 0
+    bc_u_right: str | None = None  # u at right wall. None → 0
+    bc_v_bot: str | None = None  # v at bottom wall. None → 0
+    bc_v_top: str | None = None  # v at top wall.    None → 0
 
     def __post_init__(self) -> None:
         if self.nx <= 1 or self.ny <= 1:
@@ -86,8 +141,10 @@ class SimConfig:
             raise ValueError(f"n_steps must be positive, got {self.n_steps}")
         if self.t_end <= 0:
             raise ValueError(f"t_end must be positive, got {self.t_end}")
-        if self.capture_fps <= 0:
-            raise ValueError(f"capture_fps must be positive, got {self.capture_fps}")
+        if self.video_fps <= 0:
+            raise ValueError(f"video_fps must be positive, got {self.video_fps}")
+        if self.video_speed <= 0:
+            raise ValueError(f"video_speed must be positive, got {self.video_speed}")
         if self.conv_tol < 0:
             raise ValueError(f"conv_tol must be >= 0, got {self.conv_tol}")
 
@@ -100,6 +157,8 @@ class SimConfig:
     def from_yaml(cls, path: Path) -> "SimConfig":
         with open(path) as fh:
             d = yaml.safe_load(fh)
+        forcing = d.get("forcing", {}) or {}
+        bc = d.get("boundary", {}) or {}
         return cls(
             lx=d["domain"]["lx"],
             ly=d["domain"]["ly"],
@@ -109,24 +168,112 @@ class SimConfig:
             u_lid=d["physics"]["u_lid"],
             t_end=d["time"]["t_end"],
             n_steps=d["time"]["n_steps"],
-            capture_fps=d["output"]["capture_fps"],
-            gif_playback_speed=d["output"]["gif_playback_speed"],
-            print_every=d["output"]["print_every"],
+            video_fps=d["output"]["video_fps"],
+            video_speed=d["output"]["video_speed"],
             conv_tol=d.get("convergence", {}).get("tol", 1e-6),
+            forcing_u=str(forcing.get("fu", "0.0")),
+            forcing_v=str(forcing.get("fv", "0.0")),
+            bc_u_top=bc.get("u_top"),
+            bc_u_bot=bc.get("u_bot"),
+            bc_v_left=bc.get("v_left"),
+            bc_v_right=bc.get("v_right"),
+            bc_u_left=bc.get("u_left"),
+            bc_u_right=bc.get("u_right"),
+            bc_v_bot=bc.get("v_bot"),
+            bc_v_top=bc.get("v_top"),
         )
+
+    def make_bc_arrays(self) -> dict[str, np.ndarray]:
+        """Evaluate boundary-condition expressions on their respective grid segments."""
+        dx = self.lx / self.nx
+        dy = self.ly / self.ny
+
+        # x-positions of interior u-faces: i*dx, i=1..Nx-1
+        x_u_int = np.arange(1, self.nx) * dx
+        # y-positions of interior v-faces: j*dy, j=1..Ny-1
+        y_v_int = np.arange(1, self.ny) * dy
+        # y-positions of left/right u-faces: (j+0.5)*dy, j=0..Ny-1
+        y_u_face = (np.arange(self.ny) + 0.5) * dy
+        # x-positions of bottom/top v-faces: (i+0.5)*dx, i=0..Nx-1
+        x_v_face = (np.arange(self.nx) + 0.5) * dx
+
+        def _ev(expr: str | None, default: np.ndarray, **kw) -> np.ndarray:
+            if expr is None:
+                return default
+            r = _eval_expr(expr, **kw)
+            return np.broadcast_to(r, default.shape).copy()
+
+        u_lid_arr = np.full(self.nx - 1, self.u_lid)
+        zeros_u_int = np.zeros(self.nx - 1)
+        zeros_v_int = np.zeros(self.ny - 1)
+        zeros_u_face = np.zeros(self.ny)
+        zeros_v_face = np.zeros(self.nx)
+
+        return {
+            "u_top": _ev(self.bc_u_top, u_lid_arr, x=x_u_int, y=self.ly),
+            "u_bot": _ev(self.bc_u_bot, zeros_u_int, x=x_u_int, y=0.0),
+            "v_left": _ev(self.bc_v_left, zeros_v_int, x=0.0, y=y_v_int),
+            "v_right": _ev(self.bc_v_right, zeros_v_int, x=self.lx, y=y_v_int),
+            "u_left": _ev(self.bc_u_left, zeros_u_face, x=0.0, y=y_u_face),
+            "u_right": _ev(self.bc_u_right, zeros_u_face, x=self.lx, y=y_u_face),
+            "v_bot": _ev(self.bc_v_bot, zeros_v_face, x=x_v_face, y=0.0),
+            "v_top": _ev(self.bc_v_top, zeros_v_face, x=x_v_face, y=self.ly),
+        }
+
+    def make_force_arrays(
+        self, t: float = 0.0
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Evaluate body-force expressions on the u- and v-face grids.
+
+        Returns (fu, fv) where:
+          fu shape: (Ny, Nx-1)  flattened C-order → size (Nx-1)*Ny
+          fv shape: (Ny-1, Nx)  flattened C-order → size Nx*(Ny-1)
+        Returns None for a component if its expression is trivially zero.
+        """
+        dx = self.lx / self.nx
+        dy = self.ly / self.ny
+
+        fu = fv = None
+
+        if not _is_zero_expr(self.forcing_u):
+            x_u = np.arange(1, self.nx) * dx  # shape (Nx-1,)
+            y_u = (np.arange(self.ny) + 0.5) * dy  # shape (Ny,)
+            X_u, Y_u = np.meshgrid(x_u, y_u)  # shape (Ny, Nx-1)
+            arr = _eval_expr(self.forcing_u, x=X_u, y=Y_u, t=t)
+            fu = np.broadcast_to(arr, X_u.shape).astype(np.float64).ravel()
+
+        if not _is_zero_expr(self.forcing_v):
+            x_v = (np.arange(self.nx) + 0.5) * dx  # shape (Nx,)
+            y_v = np.arange(1, self.ny) * dy  # shape (Ny-1,)
+            X_v, Y_v = np.meshgrid(x_v, y_v)  # shape (Ny-1, Nx)
+            arr = _eval_expr(self.forcing_v, x=X_v, y=Y_v, t=t)
+            fv = np.broadcast_to(arr, X_v.shape).astype(np.float64).ravel()
+
+        return fu, fv
+
+    @property
+    def has_forcing(self) -> bool:
+        return not (_is_zero_expr(self.forcing_u) and _is_zero_expr(self.forcing_v))
 
     @property
     def dt(self) -> float:
         return self.t_end / self.n_steps
 
     @property
+    def capture_fps(self) -> float:
+        """Frames to capture per simulation-second.
+
+        Derived from video_fps and video_speed so that the output video
+        always plays at exactly video_fps regardless of video_speed.
+
+        Example: video_fps=30, video_speed=3  →  capture 10 frames/sim-s.
+                 At 30fps that gives 3 sim-seconds per real second.
+        """
+        return self.video_fps / self.video_speed
+
+    @property
     def re(self) -> float:
         return self.u_lid * min(self.lx, self.ly) / self.nu
-
-    def gif_fps(self, n_frames: int) -> float:
-        """Compute fps so that the GIF plays at gif_playback_speed × real time."""
-        video_duration_s = self.t_end / self.gif_playback_speed
-        return max(1.0, n_frames / video_duration_s)
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +341,7 @@ def _check_stability(cfg: SimConfig) -> None:
     dy = cfg.ly / cfg.ny
     h = min(dx, dy)
     cfl = cfg.u_lid * cfg.dt / h
-    pe  = cfg.u_lid * h / cfg.nu
+    pe = cfg.u_lid * h / cfg.nu
 
     # Minimum n_steps needed for CFL <= 0.5
     n_steps_safe = int(cfg.t_end * cfg.u_lid / (0.5 * h)) + 1
@@ -269,6 +416,30 @@ class StokesMACLib:
     def __del__(self) -> None:
         self.close()
 
+    def set_bc_arrays(self, bcs: dict[str, np.ndarray]) -> None:
+        """Push boundary-condition arrays to the C++ solver.
+
+        Keys: u_top, u_bot, v_left, v_right, u_left, u_right, v_bot, v_top.
+        All arrays must be contiguous float64.
+        """
+
+        def _ptr(arr: np.ndarray) -> ct.POINTER(ct.c_double):
+            return arr.astype(np.float64, copy=False).ctypes.data_as(
+                ct.POINTER(ct.c_double)
+            )
+
+        self._dll.stokes_mac_set_bc_c(
+            self._handle,
+            _ptr(bcs["u_top"]),
+            _ptr(bcs["u_bot"]),
+            _ptr(bcs["v_left"]),
+            _ptr(bcs["v_right"]),
+            _ptr(bcs["u_left"]),
+            _ptr(bcs["u_right"]),
+            _ptr(bcs["v_bot"]),
+            _ptr(bcs["v_top"]),
+        )
+
     def run_steps(self, t_start: float, n_steps: int) -> np.ndarray:
         """Run n_steps with zero body force entirely inside C++.
 
@@ -279,6 +450,36 @@ class StokesMACLib:
             self._handle,
             ct.c_double(t_start),
             ct.c_int(n_steps),
+            div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+        )
+        return div_out
+
+    def run_steps_with_force(
+        self,
+        t_start: float,
+        n_steps: int,
+        fu: np.ndarray | None,
+        fv: np.ndarray | None,
+    ) -> np.ndarray:
+        """Run n_steps with constant pre-evaluated force arrays.
+
+        fu: flat float64 array of size (Nx-1)*Ny  (or None for zero)
+        fv: flat float64 array of size Nx*(Ny-1)  (or None for zero)
+        Returns float64 array of length n_steps with max|div u| per step.
+        """
+        div_out = np.empty(n_steps, dtype=np.float64)
+
+        def _ptr_or_null(arr):
+            if arr is None:
+                return ct.cast(None, ct.POINTER(ct.c_double))
+            return arr.ctypes.data_as(ct.POINTER(ct.c_double))
+
+        self._dll.stokes_mac_run_steps_with_force_c(
+            self._handle,
+            ct.c_double(t_start),
+            ct.c_int(n_steps),
+            _ptr_or_null(fu),
+            _ptr_or_null(fv),
             div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
         )
         return div_out
@@ -321,6 +522,31 @@ class StokesMACLib:
             ct.POINTER(ct.c_double),
         ]
         dll.stokes_mac_run_steps_c.restype = None
+
+        _dbl_p = ct.POINTER(ct.c_double)
+        dll.stokes_mac_set_bc_c.argtypes = [
+            ct.c_void_p,
+            _dbl_p,
+            _dbl_p,
+            _dbl_p,
+            _dbl_p,  # u_top, u_bot, v_left, v_right
+            _dbl_p,
+            _dbl_p,
+            _dbl_p,
+            _dbl_p,  # u_left, u_right, v_bot, v_top
+        ]
+        dll.stokes_mac_set_bc_c.restype = None
+
+        dll.stokes_mac_run_steps_with_force_c.argtypes = [
+            ct.c_void_p,
+            ct.c_double,
+            ct.c_int,
+            _dbl_p,
+            _dbl_p,  # fu, fv (may be NULL)
+            _dbl_p,  # div_out
+        ]
+        dll.stokes_mac_run_steps_with_force_c.restype = None
+
         for name in ("stokes_mac_get_p_c", "stokes_mac_get_u_c", "stokes_mac_get_v_c"):
             fn = getattr(dll, name)
             fn.argtypes = [ct.c_void_p]
@@ -397,12 +623,20 @@ def run_simulation(
         with StokesMACLib(
             lib_path, cfg.nx, cfg.ny, cfg.lx, cfg.ly, cfg.nu, cfg.dt
         ) as solver:
+            # Apply boundary conditions once (handles both custom and default lid BCs).
+            solver.set_bc_arrays(cfg.make_bc_arrays())
+
             step_done = 0
             for batch_start in range(0, cfg.n_steps, cfg.frame_every):
                 batch_n = min(cfg.frame_every, cfg.n_steps - batch_start)
                 t_start = batch_start * cfg.dt
 
-                divs = solver.run_steps(t_start, batch_n)
+                if cfg.has_forcing:
+                    # Re-evaluate force at the start of each batch (handles t-dependence).
+                    fu, fv = cfg.make_force_arrays(t=t_start)
+                    divs = solver.run_steps_with_force(t_start, batch_n, fu, fv)
+                else:
+                    divs = solver.run_steps(t_start, batch_n)
 
                 if not np.isfinite(divs).all():
                     nan_step = batch_start + int(np.argmax(~np.isfinite(divs))) + 1
@@ -658,69 +892,74 @@ def _draw_vorticity(ax, fig, snap, Xc, Yc, omega_levels) -> None:
 
 
 # ---------------------------------------------------------------------------
-# GIF rendering (worker processes)
+# Video rendering (worker processes)
 # ---------------------------------------------------------------------------
 
-_GIF_SPECS = [
-    ("streamlines", "stokes_streamlines.gif"),
-    ("pressure",    "stokes_pressure.gif"),
-    ("vorticity",   "stokes_vorticity.gif"),
+_VIDEO_SPECS = [
+    ("streamlines", "stokes_streamlines.mp4"),
+    ("pressure",    "stokes_pressure.mp4"),
+    ("vorticity",   "stokes_vorticity.mp4"),
 ]
 
 
-def _gif_worker(task: dict) -> tuple[str, str]:
+def _video_worker(task: dict) -> tuple[str, str]:
     """
-    Render every frame for one GIF type, assemble, and write to disk.
+    Render every frame for one video type and write an MP4 to disk.
     Runs in a spawned worker process.
     Sends task["kind"] to task["queue"] after every rendered frame.
-    Returns (kind, gif_path).
+    Returns (kind, video_path).
     """
-    kind: str               = task["kind"]
-    queue                   = task["queue"]
-    lx, ly                  = task["lx"], task["ly"]
-    xc: np.ndarray          = task["xc"]
-    yc: np.ndarray          = task["yc"]
-    Xc: np.ndarray          = task["Xc"]
-    Yc: np.ndarray          = task["Yc"]
+    kind: str             = task["kind"]
+    queue                 = task["queue"]
+    lx, ly                = task["lx"], task["ly"]
+    xc: np.ndarray        = task["xc"]
+    yc: np.ndarray        = task["yc"]
+    Xc: np.ndarray        = task["Xc"]
+    Yc: np.ndarray        = task["Yc"]
     snapshots: list[Snapshot] = task["snapshots"]
-    frame_duration_ms: int  = task["frame_duration_ms"]
+    fps: float            = task["fps"]
 
-    gif_frames: list[Image.Image] = []
+    video_path = Path(task["video_path"])
+    video_path.parent.mkdir(parents=True, exist_ok=True)
 
-    for snap in snapshots:
-        fig, ax = plt.subplots(figsize=(6.2, 6.0))
+    # H.264 — plays everywhere (QuickTime, VLC, browsers).
+    # macro_block_size=1 removes the "dimensions must be even" restriction.
+    # imageio-ffmpeg handles pix_fmt=yuv420p by default.
+    writer = imageio.get_writer(
+        str(video_path),
+        fps=fps,
+        codec="libx264",
+        output_params=["-crf", "20"],
+        macro_block_size=1,
+    )
 
-        if kind == "streamlines":
-            _draw_streamlines(ax, fig, snap, xc, yc, Xc, Yc, task["speed_levels"])
-            title = f"Streamlines, t={snap.t:.3f}"
-        elif kind == "pressure":
-            _draw_pressure(ax, fig, snap, Xc, Yc, task["p_levels"])
-            title = f"Pressure, t={snap.t:.3f}"
-        elif kind == "vorticity":
-            _draw_vorticity(ax, fig, snap, Xc, Yc, task["omega_levels"])
-            title = f"Vorticity, t={snap.t:.3f}"
-        else:
-            raise ValueError(f"Unknown GIF kind: {kind!r}")
+    with writer:
+        for snap in snapshots:
+            fig, ax = plt.subplots(figsize=(6.2, 6.0))
 
-        _style_axes(ax, title, lx, ly)
-        fig.tight_layout()
-        gif_frames.append(_fig_to_pil(fig, dpi=110))
-        queue.put(kind)  # notify main process: one more frame done
+            if kind == "streamlines":
+                _draw_streamlines(ax, fig, snap, xc, yc, Xc, Yc, task["speed_levels"])
+                title = f"Streamlines, t={snap.t:.3f}"
+            elif kind == "pressure":
+                _draw_pressure(ax, fig, snap, Xc, Yc, task["p_levels"])
+                title = f"Pressure, t={snap.t:.3f}"
+            elif kind == "vorticity":
+                _draw_vorticity(ax, fig, snap, Xc, Yc, task["omega_levels"])
+                title = f"Vorticity, t={snap.t:.3f}"
+            else:
+                raise ValueError(f"Unknown video kind: {kind!r}")
 
-    gif_path = Path(task["gif_path"])
-    gif_path.parent.mkdir(parents=True, exist_ok=True)
-    if gif_frames:
-        gif_frames[0].save(
-            gif_path,
-            save_all=True,
-            append_images=gif_frames[1:],
-            duration=frame_duration_ms,
-            loop=0,
-        )
-    return kind, str(gif_path)
+            _style_axes(ax, title, lx, ly)
+            fig.tight_layout()
+            # PIL → RGB numpy array (imageio expects HxWx3)
+            frame = np.array(_fig_to_pil(fig, dpi=110).convert("RGB"))
+            writer.append_data(frame)
+            queue.put(kind)
+
+    return kind, str(video_path)
 
 
-def render_gifs(
+def render_videos(
     snapshots: list[Snapshot],
     cfg: SimConfig,
     out_dir: Path,
@@ -731,30 +970,32 @@ def render_gifs(
     ol: np.ndarray,
     speed_max: float,
 ) -> dict[str, Path]:
-    """Render all GIFs in parallel worker processes with per-GIF progress bars."""
+    """Render all videos in parallel worker processes with per-video progress bars."""
     Xc, Yc = np.meshgrid(xc, yc, indexing="ij")
-    fps = cfg.gif_fps(len(snapshots))
-    frame_duration_ms = int(1000.0 / fps)
+    fps = cfg.video_fps
     n_frames = len(snapshots)
 
-    # Shared queue: workers push kind-strings, listener thread updates Rich bars.
     manager = mp.Manager()
     queue = manager.Queue()
 
     common = {
-        "queue": queue,
-        "lx": cfg.lx, "ly": cfg.ly,
-        "xc": xc, "yc": yc, "Xc": Xc, "Yc": Yc,
-        "frame_duration_ms": frame_duration_ms,
+        "queue":     queue,
+        "lx":        cfg.lx,
+        "ly":        cfg.ly,
+        "xc":        xc,
+        "yc":        yc,
+        "Xc":        Xc,
+        "Yc":        Yc,
+        "fps":       fps,
         "snapshots": snapshots,
     }
     tasks = [
         {**common, "kind": "streamlines",
-         "gif_path": str(out_dir / "stokes_streamlines.gif"), "speed_levels": sl},
+         "video_path": str(out_dir / "stokes_streamlines.mp4"), "speed_levels": sl},
         {**common, "kind": "pressure",
-         "gif_path": str(out_dir / "stokes_pressure.gif"),    "p_levels": pl},
+         "video_path": str(out_dir / "stokes_pressure.mp4"),    "p_levels": pl},
         {**common, "kind": "vorticity",
-         "gif_path": str(out_dir / "stokes_vorticity.gif"),   "omega_levels": ol},
+         "video_path": str(out_dir / "stokes_vorticity.mp4"),   "omega_levels": ol},
     ]
 
     progress = Progress(
@@ -763,6 +1004,7 @@ def render_gifs(
         BarColumn(bar_width=38),
         TaskProgressColumn(),
         TimeElapsedColumn(),
+        TimeRemainingColumn(),
         console=console,
         transient=False,
     )
@@ -770,12 +1012,8 @@ def render_gifs(
     results: dict[str, Path] = {}
 
     with progress:
-        bars = {
-            kind: progress.add_task(kind, total=n_frames)
-            for kind, _ in _GIF_SPECS
-        }
+        bars = {kind: progress.add_task(kind, total=n_frames) for kind, _ in _VIDEO_SPECS}
 
-        # Background thread: drains the queue and advances progress bars.
         def _listener() -> None:
             received = 0
             total = n_frames * len(tasks)
@@ -792,7 +1030,7 @@ def render_gifs(
             max_workers=n_workers,
             mp_context=mp.get_context("spawn"),
         ) as pool:
-            for kind, path in pool.map(_gif_worker, tasks):
+            for kind, path in pool.map(_video_worker, tasks):
                 results[kind] = Path(path)
 
         listener.join()
@@ -806,20 +1044,20 @@ def render_gifs(
 # ---------------------------------------------------------------------------
 
 
-def save_state_csv(
-    snap: Snapshot, xc: np.ndarray, yc: np.ndarray, path: Path
-) -> None:
-    """Save final snapshot (cell-centred x, y, u, v, omega) as CSV."""
+def save_state_csv(snap: Snapshot, xc: np.ndarray, yc: np.ndarray, path: Path) -> None:
+    """Save final snapshot (cell-centred x, y, u, v, p) as CSV."""
     path.parent.mkdir(parents=True, exist_ok=True)
     X, Y = np.meshgrid(xc, yc, indexing="ij")
     data = np.column_stack(
-        [X.ravel(), Y.ravel(),
-         snap.uc.ravel(), snap.vc.ravel(),
-         snap.omega.ravel()]
+        [X.ravel(), Y.ravel(), snap.uc.ravel(), snap.vc.ravel(), snap.p.ravel()]
     )
     np.savetxt(
-        path, data, delimiter=",",
-        header="x,y,u,v,omega", comments="", fmt="%.8f",
+        path,
+        data,
+        delimiter=",",
+        header="x,y,u,v,p",
+        comments="",
+        fmt="%.8f",
     )
 
 
@@ -866,17 +1104,31 @@ def save_divergence_plot(
 def _make_legend_handles(has_ccw: bool, has_cw: bool) -> list:
     handles = []
     if has_ccw:
-        handles.append(Line2D(
-            [0], [0], marker="+", color="red", linestyle="none",
-            markersize=10, markeredgewidth=2.0,
-            label="Vortex ↺ — counterclockwise (CCW)",
-        ))
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="+",
+                color="red",
+                linestyle="none",
+                markersize=10,
+                markeredgewidth=2.0,
+                label="Vortex ↺ — counterclockwise (CCW)",
+            )
+        )
     if has_cw:
-        handles.append(Line2D(
-            [0], [0], marker="x", color="cyan", linestyle="none",
-            markersize=10, markeredgewidth=2.0,
-            label="Vortex ↻ — clockwise (CW)",
-        ))
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="x",
+                color="cyan",
+                linestyle="none",
+                markersize=10,
+                markeredgewidth=2.0,
+                label="Vortex ↻ — clockwise (CW)",
+            )
+        )
     return handles
 
 
@@ -902,8 +1154,8 @@ def save_final_figure(
 
     panels = [
         ("streamlines", "Streamlines", sl),
-        ("pressure",    "Pressure",    pl),
-        ("vorticity",   "Vorticity",   ol),
+        ("pressure", "Pressure", pl),
+        ("vorticity", "Vorticity", ol),
     ]
 
     saved: list[Path] = []
@@ -963,8 +1215,10 @@ def main() -> None:
     tbl.add_row("t_end", f"{cfg.t_end}")
     tbl.add_row("dt", f"{cfg.dt:.2e}")
     tbl.add_row("n_steps", f"{cfg.n_steps:,}")
-    tbl.add_row("capture_fps", f"{cfg.capture_fps} /sim-s  ({cfg.frame_every:,} steps/frame)")
-    tbl.add_row("GIF speed", f"{cfg.gif_playback_speed}× real time")
+    tbl.add_row(
+        "video_fps", f"{cfg.video_fps} fps  (speed {cfg.video_speed}×,  {cfg.frame_every:,} steps/frame)"
+    )
+    tbl.add_row("video_speed", f"{cfg.video_speed}× real time")
     conv = f"{cfg.conv_tol:.1e}" if cfg.conv_tol > 0 else "disabled"
     tbl.add_row("conv_tol", conv)
     console.print(Panel(tbl, title="[bold]Lid-driven cavity[/bold]", expand=False))
@@ -991,7 +1245,7 @@ def main() -> None:
         csv_path = out_dir / "final_state" / "state.csv"
         save_state_csv(snapshots[-1], xc, yc, csv_path)
 
-    gif_paths = render_gifs(snapshots, cfg, out_dir, xc, yc, sl, pl, ol, speed_max)
+    gif_paths = render_videos(snapshots, cfg, out_dir, xc, yc, sl, pl, ol, speed_max)
 
     # ── Saved files table ─────────────────────────────────────────────────
     out_tbl = Table(show_header=False, box=None, padding=(0, 2))

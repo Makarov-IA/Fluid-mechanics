@@ -19,18 +19,22 @@ time:
   n_steps: 50000   # dt = 0.001  →  CFL = 0.105, Pe = 0.95  (both stable)
 
 output:
-  # Snapshots captured per simulation-second.
-  # Total frames = capture_fps * t_end
-  # Example: capture_fps=4, t_end=50 → 200 snapshots
-  capture_fps: 10
+  # Output video frame rate (fps of the saved .mp4 files).
+  video_fps: 10
 
-  # GIF playback speed: simulation-seconds shown per real second.
-  gif_playback_speed: 3.0
-
-  # Console progress line every N solver steps.
-  print_every: 10000
+  # Playback speed: how many simulation-seconds are shown per real second.
+  # video_fps=30, video_speed=3  →  capture 10 frames/sim-s, video 3× faster than real.
+  # video_fps=30, video_speed=1  →  capture 30 frames/sim-s, real-time playback.
+  video_speed: 0.5
 
 convergence:
   # Stop early when max velocity change between consecutive snapshots
   # drops below this threshold (set to 0 to always run all n_steps).
   tol: 1.0e-6
+
+boundary:
+  u_top: "1.0"
+
+forcing:
+  fu: "0.0"
+  fv: "0.0"
