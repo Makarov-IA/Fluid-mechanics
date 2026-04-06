@@ -61,3 +61,8 @@ __pycache__
 alex/papers
 alex/data/results
 alex/plots/frames
+
+
+*.mp4
+*.csv
+*.png
