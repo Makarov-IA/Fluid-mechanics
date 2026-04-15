@@ -13,20 +13,21 @@ inline double OmegaForcing(double x, double y, double lx, double ly)
     const double a13 = a22 / 50.0;
     const double a31 = a22 / 50.0;
 
-    const auto mode = [&](int m, int n, double a_mn) {
-        return a_mn * std::sin(kPi * static_cast<double>(m) * x / lx) *
-               std::cos(kPi * static_cast<double>(n) * y / ly);
+    const auto mode_dy = [&](int m, int n, double a_mn) {
+        return -a_mn * (kPi * static_cast<double>(n) / ly) *
+               std::sin(kPi * static_cast<double>(m) * x / lx) *
+               std::sin(kPi * static_cast<double>(n) * y / ly);
     };
 
-    double f1 = 0.0;
-    f1 += mode(2, 2, a22);
-    f1 += mode(4, 2, a42);
-    f1 += mode(6, 2, a62);
-    f1 += mode(2, 4, a24);
-    f1 += mode(1, 3, a13);
-    f1 += mode(3, 1, a31);
+    double forcing = 0.0;
+    forcing += mode_dy(2, 2, a22);
+    forcing += mode_dy(4, 2, a42);
+    forcing += mode_dy(6, 2, a62);
+    forcing += mode_dy(2, 4, a24);
+    forcing += mode_dy(1, 3, a13);
+    forcing += mode_dy(3, 1, a31);
 
-    return f1;
+    return forcing;
 }
 
 #endif // FORCING__OMEGA_FORCING_HPP
