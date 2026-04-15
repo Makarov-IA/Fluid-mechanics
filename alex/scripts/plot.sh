@@ -19,6 +19,6 @@ if command -v cygpath >/dev/null 2>&1; then
 fi
 
 echo "[plot] Rendering PNG frames from $OUT_DIR"
-python "$ROOT_DIR/scripts/plot_fields.py" "$RESULTS_ARG" "$FRAMES_ARG"
+python3 "$ROOT_DIR/scripts/plot_fields.py" "$RESULTS_ARG" "$FRAMES_ARG"
 
 echo "[plot] Done."

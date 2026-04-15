@@ -17,7 +17,7 @@ if command -v cygpath >/dev/null 2>&1; then
   GIFS_ARG="$(cygpath -m "$GIFS_DIR")"
 fi
 
-python "$ROOT_DIR/scripts/make_gifs.py" \
+python3 "$ROOT_DIR/scripts/make_gifs.py" \
   "$FRAMES_ARG" \
   "$GIFS_ARG" \
   --duration "$DURATION"

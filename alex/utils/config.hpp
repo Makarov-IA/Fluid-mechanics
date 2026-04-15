@@ -14,10 +14,26 @@ struct LogInfo
     int print_every_step = 100;
 };
 
+struct WallVelocity
+{
+    double u = 0.0;
+    double v = 0.0;
+};
+
+struct BoundaryConditions
+{
+    WallVelocity left;
+    WallVelocity right;
+    WallVelocity bottom;
+    WallVelocity top;
+};
+
 struct Config
 {
     int nx = 128;
     int ny = 128;
+    double lx = 1.0;
+    double ly = 1.0;
 
     std::string mode = "fixed_steps";
     double t_max = 1.0;
@@ -29,6 +45,7 @@ struct Config
     int save_every_step = 100;
     std::string save_dir = "data/results";
 
+    BoundaryConditions bc;
     LogInfo log_info;
 };
 
@@ -124,6 +141,14 @@ inline Config LoadConfigFromFile(const std::string& path)
             {
                 cfg.ny = std::stoi(value);
             }
+            else if (key == "lx")
+            {
+                cfg.lx = std::stod(value);
+            }
+            else if (key == "ly")
+            {
+                cfg.ly = std::stod(value);
+            }
             else if (key == "t_max")
             {
                 cfg.t_max = std::stod(value);
@@ -151,6 +176,38 @@ inline Config LoadConfigFromFile(const std::string& path)
             else if (key == "save_dir")
             {
                 cfg.save_dir = value;
+            }
+            else if (key == "bc.left.u")
+            {
+                cfg.bc.left.u = std::stod(value);
+            }
+            else if (key == "bc.left.v")
+            {
+                cfg.bc.left.v = std::stod(value);
+            }
+            else if (key == "bc.right.u")
+            {
+                cfg.bc.right.u = std::stod(value);
+            }
+            else if (key == "bc.right.v")
+            {
+                cfg.bc.right.v = std::stod(value);
+            }
+            else if (key == "bc.bottom.u")
+            {
+                cfg.bc.bottom.u = std::stod(value);
+            }
+            else if (key == "bc.bottom.v")
+            {
+                cfg.bc.bottom.v = std::stod(value);
+            }
+            else if (key == "bc.top.u")
+            {
+                cfg.bc.top.u = std::stod(value);
+            }
+            else if (key == "bc.top.v")
+            {
+                cfg.bc.top.v = std::stod(value);
             }
             else if (key == "log_info.enabled")
             {
@@ -187,6 +244,30 @@ inline Config LoadConfigFromFile(const std::string& path)
     if (cfg.ny <= 1)
     {
         throw std::runtime_error("ny must be > 1");
+    }
+    if (cfg.lx <= 0.0)
+    {
+        throw std::runtime_error("lx must be > 0");
+    }
+    if (cfg.ly <= 0.0)
+    {
+        throw std::runtime_error("ly must be > 0");
+    }
+    if (cfg.bc.left.u != 0.0)
+    {
+        throw std::runtime_error("bc.left.u must be 0 for impermeable psi=const walls");
+    }
+    if (cfg.bc.right.u != 0.0)
+    {
+        throw std::runtime_error("bc.right.u must be 0 for impermeable psi=const walls");
+    }
+    if (cfg.bc.bottom.v != 0.0)
+    {
+        throw std::runtime_error("bc.bottom.v must be 0 for impermeable psi=const walls");
+    }
+    if (cfg.bc.top.v != 0.0)
+    {
+        throw std::runtime_error("bc.top.v must be 0 for impermeable psi=const walls");
     }
     if (cfg.t_max <= 0.0)
     {

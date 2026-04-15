@@ -48,6 +48,7 @@ private:
     void computeRHS(Eigen::MatrixXd& rhs) const;
     void computeOmegaRHS(Eigen::MatrixXd& rhs) const;
     void computeResiduals();
+    double arakawaJacobian(int i, int j) const;
 
 public:
     Solver(const Config& cfg);

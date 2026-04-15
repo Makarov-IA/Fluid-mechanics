@@ -2,3 +2,5 @@ numpy
 matplotlib
 imageio-ffmpeg
 tqdm
+
+imageio

@@ -9,6 +9,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "../forcing/omega_forcing.hpp"
+
 Solver::Solver(const Config& cfg) : cfg_(cfg)
 {
     nx_ = cfg.nx;
@@ -16,8 +18,8 @@ Solver::Solver(const Config& cfg) : cfg_(cfg)
     t_max_ = cfg.t_max;
     n_time_steps_ = cfg.n_time_steps;
 
-    dx_ = 1.0 / (nx_ - 1);
-    dy_ = 1.0 / (ny_ - 1);
+    dx_ = cfg.lx / (nx_ - 1);
+    dy_ = cfg.ly / (ny_ - 1);
     dt_ = t_max_ / n_time_steps_;
     if (cfg_.mode == "fixed_dt_steps" && cfg_.dt > 0.0) {
         dt_ = cfg_.dt;
@@ -34,25 +36,51 @@ Solver::Solver(const Config& cfg) : cfg_(cfg)
     g_ = Eigen::MatrixXd::Zero(nx_, ny_);
 }
 
+double Solver::arakawaJacobian(int i, int j) const {
+    const double inv_4dxdy = 1.0 / (4.0 * dx_ * dy_);
+
+    const double j1 =
+        ((psi_(i + 1, j) - psi_(i - 1, j)) * (omega_(i, j + 1) - omega_(i, j - 1)) -
+         (psi_(i, j + 1) - psi_(i, j - 1)) * (omega_(i + 1, j) - omega_(i - 1, j))) *
+        inv_4dxdy;
+
+    const double j2 =
+        (psi_(i + 1, j) * (omega_(i + 1, j + 1) - omega_(i + 1, j - 1)) -
+         psi_(i - 1, j) * (omega_(i - 1, j + 1) - omega_(i - 1, j - 1)) -
+         psi_(i, j + 1) * (omega_(i + 1, j + 1) - omega_(i - 1, j + 1)) +
+         psi_(i, j - 1) * (omega_(i + 1, j - 1) - omega_(i - 1, j - 1))) *
+        inv_4dxdy;
+
+    const double j3 =
+        (omega_(i, j + 1) * (psi_(i + 1, j + 1) - psi_(i - 1, j + 1)) -
+         omega_(i, j - 1) * (psi_(i + 1, j - 1) - psi_(i - 1, j - 1)) -
+         omega_(i + 1, j) * (psi_(i + 1, j + 1) - psi_(i + 1, j - 1)) +
+         omega_(i - 1, j) * (psi_(i - 1, j + 1) - psi_(i - 1, j - 1))) *
+        inv_4dxdy;
+
+    return (j1 + j2 + j3) / 3.0;
+}
+
 void Solver::updateVelocities() {
     for (int i = 0; i < nx_; ++i) {
         for (int j = 0; j < ny_; ++j) {
 
             if (i == 0 || i == nx_ - 1) {
-                u_(i, j) = 0.0;
-                v_(i, j) = 0.0;
+                const WallVelocity& wall = (i == 0) ? cfg_.bc.left : cfg_.bc.right;
+                u_(i, j) = wall.u;
+                v_(i, j) = wall.v;
                 continue;
             }
 
             if (j == 0) {
-                u_(i, j) = 0.0;
-                v_(i, j) = 0.0;
+                u_(i, j) = cfg_.bc.bottom.u;
+                v_(i, j) = cfg_.bc.bottom.v;
                 continue;
             }
 
             if (j == ny_ - 1){
-                u_(i, j) = 1.0;
-                v_(i, j) = 0.0;
+                u_(i, j) = cfg_.bc.top.u;
+                v_(i, j) = cfg_.bc.top.v;
                 continue;
             }
 
@@ -65,13 +93,13 @@ void Solver::updateVelocities() {
 void Solver::ApplyThomBoundary() {
 
     for (int i = 1; i < nx_ - 1; ++i) {
-        omega_(i, 0) = -(2.0 * psi_(i, 1)) / (dy_ * dy_);
-        omega_(i, ny_ - 1) = - (2.0 * psi_(i, ny_ - 2)) / (dy_ * dy_) - 2. / dy_;
+        omega_(i, 0) = -(2.0 * psi_(i, 1)) / (dy_ * dy_) - 2.0 * cfg_.bc.bottom.u / dy_;
+        omega_(i, ny_ - 1) = -(2.0 * psi_(i, ny_ - 2)) / (dy_ * dy_) - 2.0 * cfg_.bc.top.u / dy_;
     }
 
     for (int j = 1; j < ny_ - 1; ++j) {
-        omega_(0, j) = - (2.0 * psi_(1, j)) / (dx_ * dx_);
-        omega_(nx_ - 1, j) = - (2.0 * psi_(nx_ - 2, j)) / (dx_ * dx_);
+        omega_(0, j) = -(2.0 * psi_(1, j)) / (dx_ * dx_) - 2.0 * cfg_.bc.left.v / dx_;
+        omega_(nx_ - 1, j) = -(2.0 * psi_(nx_ - 2, j)) / (dx_ * dx_) - 2.0 * cfg_.bc.right.v / dx_;
     }
 }
 
@@ -103,34 +131,13 @@ void Solver::computeOmegaRHS(Eigen::MatrixXd& rhs) const {
         throw std::runtime_error("Error in compute RHS: wrong matrix size, need" + std::to_string(nx_) + "x" + std::to_string(ny_) + " but got " + std::to_string(rhs.rows()) + "x" + std::to_string(rhs.cols()) + ".");
     }
 
-    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(nx_, ny_);
+    rhs.setZero();
 
     for (int i = 1; i < nx_ - 1; ++i) {
         for (int j = 1; j < ny_ - 1; ++j) {
-            double d2y = (omega_(i, j-1) - 2.0 * omega_(i, j) + omega_(i, j+1)) / (dy_ * dy_);
-            double d1y = (omega_(i, j+1) - omega_(i, j-1)) / (2.0 * dy_);
-            double dPsix = (psi_(i+1, j) - psi_(i-1, j)) / (2.0 * dx_);
-
-            tmp(i, j) = (dt_ / Re_) * d2y + dt_ * dPsix * d1y;
-        }
-    }
-    for (int j = 1; j < ny_ - 1; ++j) {
-        double d2y_left = (omega_(0, j-1) - 2.0 * omega_(0, j) + omega_(0, j+1)) / (dy_ * dy_);
-        tmp(0, j) = (dt_ / Re_) * d2y_left;
-
-        double d2y_right = (omega_(nx_ - 1, j-1) - 2.0 * omega_(nx_ - 1, j) + omega_(nx_ - 1, j+1)) / (dy_ * dy_);
-        tmp(nx_ - 1, j) = (dt_ / Re_) * d2y_right;
-    }
-
-    for (int i = 1; i < nx_ - 1; ++i) {
-        for (int j = 1; j < ny_ - 1; ++j) {
-            double d2x_tmp = (tmp(i-1, j) - 2.0 * tmp(i, j) + tmp(i+1, j)) / (dx_ * dx_);
-            double d1x_tmp = (tmp(i+1, j) - tmp(i-1, j)) / (2.0 * dx_);
-            double dPsiy = (psi_(i, j+1) - psi_(i, j-1)) / (2.0 * dy_);
-
-            double Lx_tmp = (dt_ / Re_) * d2x_tmp - dt_ * dPsiy * d1x_tmp;
-
-            rhs(i, j) = omega_(i, j) + Lx_tmp;
+            const double x = i * dx_;
+            const double y = j * dy_;
+            rhs(i, j) = omega_(i, j) - dt_ * arakawaJacobian(i, j) - dt_ * OmegaForcing(x, y, cfg_.lx, cfg_.ly);
         }
     }
 }
@@ -208,14 +215,9 @@ void Solver::solveOmega() {
 
     for (int j = 1; j < ny_ - 1; ++j) {
         for (int i = 1; i < nx_ - 1; ++i) {
-
-            double psi_y = (psi_(i, j+1) - psi_(i, j-1)) / (2.0 * dy_);
-
-            double conv_x = (dt_ * psi_y) / (2.0 * dx_);
-
-            a_x(i) = -x_term - conv_x;
+            a_x(i) = -x_term;
             c_x(i) = 1.0 + 2.0 * x_term;
-            b_x(i) = -x_term + conv_x;
+            b_x(i) = -x_term;
         }
 
         c_x(0) = 1.0;
@@ -238,13 +240,9 @@ void Solver::solveOmega() {
 
     for (int i = 1; i < nx_ - 1; ++i) {
         for (int j = 1; j < ny_ - 1; ++j) {
-            double psi_x = (psi_(i+1, j) - psi_(i-1, j)) / (2.0 * dx_);
-
-            double conv_y = (dt_ * psi_x) / (2.0 * dy_);
-
-            a_y(j) = -y_term + conv_y;
+            a_y(j) = -y_term;
             c_y(j) = 1.0 + 2.0 * y_term;
-            b_y(j) = -y_term - conv_y;
+            b_y(j) = -y_term;
         }
 
         c_y(0) = 1.0;
@@ -269,8 +267,8 @@ void Solver::computeResiduals() {
         for (int j = 1; j < ny_ - 1; ++j) {
             residual_.psi_res = std::max(residual_.psi_res, std::abs((psi_(i-1, j) - 2.0 * psi_(i, j) + psi_(i+1, j)) / (dx_ * dx_) + (psi_(i, j-1) - 2.0 * psi_(i, j) + psi_(i, j+1))/(dy_ * dy_) + omega_(i, j)));
             tmp = 1. / Re_ * (omega_(i+1, j) - 2.0 * omega_(i, j) + omega_(i-1, j)) / (dx_ * dx_) + 1. / Re_ * (omega_(i, j+1) - 2.0 * omega_(i, j) + omega_(i, j-1)) / (dy_ * dy_);
-            tmp += -(psi_(i, j+1) - psi_(i, j-1)) / (2.0 * dy_) * (omega_(i+1, j) - omega_(i-1, j)) / (2.0 * dx_);
-            tmp += (psi_(i+1, j) - psi_(i-1, j)) / (2.0 * dx_) * (omega_(i, j+1) - omega_(i, j-1)) / (2.0 * dy_);
+            tmp -= arakawaJacobian(i, j);
+            tmp -= OmegaForcing(i * dx_, j * dy_, cfg_.lx, cfg_.ly);
             residual_.omega_res = std::max(residual_.omega_res, std::abs(tmp));
         }
     }
