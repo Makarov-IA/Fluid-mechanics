@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import pickle
 import re
 
 import numpy as np
@@ -17,7 +18,7 @@ console = Console()
 
 _TIME_VAR_RE = re.compile(r"(?<![A-Za-z0-9_])t(?![A-Za-z0-9_])")
 _PROJECT_DIR = Path(__file__).parent.parent
-_STEADY_GUESS_CSV = _PROJECT_DIR / "plots" / "fixed_time_state" / "state.csv"
+_STEADY_GUESS_PATH = _PROJECT_DIR / "plots" / "fixed_time_state" / "state_internal.pkl"
 
 
 @dataclass
@@ -85,85 +86,55 @@ def _validate_time_independent(cfg: SimConfig) -> None:
         )
 
 
-def _build_reconstruction_matrix(n_cells: int) -> np.ndarray:
-    """Map interior face values to cell-centred averages for one line."""
-    mat = np.zeros((n_cells, n_cells - 1), dtype=np.float64)
-    if n_cells <= 1:
-        return mat
-    mat[0, 0] = 1.0
-    for i in range(1, n_cells - 1):
-        mat[i, i - 1] = 1.0
-        mat[i, i] = 1.0
-    mat[n_cells - 1, n_cells - 2] = 1.0
-    return mat
-
-
-def _reconstruct_u_interior(
-    uc: np.ndarray,
-    bc_u_left: np.ndarray,
-    bc_u_right: np.ndarray,
-) -> np.ndarray:
-    """Recover interior u-face values from cell-centred u and wall BCs."""
-    nx, ny = uc.shape
-    mat = _build_reconstruction_matrix(nx)
-    u_face = np.zeros((nx + 1, ny), dtype=np.float64)
-    u_face[0, :] = bc_u_left
-    u_face[nx, :] = bc_u_right
-
-    for j in range(ny):
-        rhs = 2.0 * uc[:, j].astype(np.float64, copy=True)
-        rhs[0] -= u_face[0, j]
-        rhs[-1] -= u_face[nx, j]
-        u_face[1:nx, j] = np.linalg.lstsq(mat, rhs, rcond=None)[0]
-
-    return u_face[1:nx, :].reshape(-1, order="F")
-
-
-def _reconstruct_v_interior(
-    vc: np.ndarray,
-    bc_v_bot: np.ndarray,
-    bc_v_top: np.ndarray,
-) -> np.ndarray:
-    """Recover interior v-face values from cell-centred v and wall BCs."""
-    nx, ny = vc.shape
-    mat = _build_reconstruction_matrix(ny)
-    v_face = np.zeros((nx, ny + 1), dtype=np.float64)
-    v_face[:, 0] = bc_v_bot
-    v_face[:, ny] = bc_v_top
-
-    for i in range(nx):
-        rhs = 2.0 * vc[i, :].astype(np.float64, copy=True)
-        rhs[0] -= v_face[i, 0]
-        rhs[-1] -= v_face[i, ny]
-        v_face[i, 1:ny] = np.linalg.lstsq(mat, rhs, rcond=None)[0]
-
-    return v_face[:, 1:ny].reshape(-1, order="F")
-
-
-def _load_state_csv(path: Path, cfg: SimConfig) -> np.ndarray:
-    """Load a cell-centred CSV initial guess and reconstruct interior faces."""
-    data = np.loadtxt(path, delimiter=",", skiprows=1)
-    if data.ndim != 2 or data.shape != (cfg.nx * cfg.ny, 5):
-        raise ValueError(
-            f"{path} does not match expected state.csv shape {(cfg.nx * cfg.ny, 5)}"
-        )
-
-    uc = data[:, 2].reshape(cfg.nx, cfg.ny)
-    vc = data[:, 3].reshape(cfg.nx, cfg.ny)
-    bcs = cfg.make_bc_arrays()
-    u_vec = _reconstruct_u_interior(uc, bcs["u_left"], bcs["u_right"])
-    v_vec = _reconstruct_v_interior(vc, bcs["v_bot"], bcs["v_top"])
-    return _join_state(u_vec, v_vec)
-
-
 def _load_initial_guess(cfg: SimConfig) -> tuple[np.ndarray, str]:
-    """Load the only supported steady initial guess: nearest-time simulation state."""
-    if not _STEADY_GUESS_CSV.exists():
+    """Load exact internal MAC state saved by simulation mode."""
+    if not _STEADY_GUESS_PATH.exists():
         raise FileNotFoundError(
-            f"Initial guess CSV not found: {_STEADY_GUESS_CSV}. "
-            "Run simulation mode first so it writes plots/fixed_time_state/state.csv."
+            f"Initial guess pickle not found: {_STEADY_GUESS_PATH}. "
+            "Run simulation mode first so it writes plots/fixed_time_state/state_internal.pkl."
         )
-    return _load_state_csv(_STEADY_GUESS_CSV, cfg), str(_STEADY_GUESS_CSV)
+
+    with _STEADY_GUESS_PATH.open("rb") as fh:
+        data = pickle.load(fh)
+
+    if not isinstance(data, dict):
+        raise ValueError(f"{_STEADY_GUESS_PATH} must contain a pickle dictionary")
+
+    required = ("nx", "ny", "lx", "ly", "nu", "dt", "u_vec", "v_vec", "p")
+    missing = [key for key in required if key not in data]
+    if missing:
+        keys = ", ".join(missing)
+        raise ValueError(f"{_STEADY_GUESS_PATH} is missing keys: {keys}")
+
+    saved_nx = int(data.get("nx", -1))
+    saved_ny = int(data.get("ny", -1))
+    if saved_nx != cfg.nx or saved_ny != cfg.ny:
+        raise ValueError(
+            f"{_STEADY_GUESS_PATH} grid {saved_nx}x{saved_ny} does not match "
+            f"config grid {cfg.nx}x{cfg.ny}"
+        )
+
+    for key, current in (("lx", cfg.lx), ("ly", cfg.ly), ("nu", cfg.nu), ("dt", cfg.dt)):
+        saved = float(data[key])
+        if not np.isclose(saved, current, rtol=1e-12, atol=1e-14):
+            raise ValueError(
+                f"{_STEADY_GUESS_PATH} {key}={saved} does not match config {key}={current}"
+            )
+
+    u_vec = np.asarray(data["u_vec"], dtype=np.float64).reshape(-1)
+    v_vec = np.asarray(data["v_vec"], dtype=np.float64).reshape(-1)
+    p_vec = np.asarray(data["p"], dtype=np.float64).reshape(-1)
+    expected_u = (cfg.nx - 1) * cfg.ny
+    expected_v = cfg.nx * (cfg.ny - 1)
+    expected_p = cfg.nx * cfg.ny
+    if u_vec.shape != (expected_u,):
+        raise ValueError(f"u_vec must have shape {(expected_u,)}, got {u_vec.shape}")
+    if v_vec.shape != (expected_v,):
+        raise ValueError(f"v_vec must have shape {(expected_v,)}, got {v_vec.shape}")
+    if p_vec.shape != (expected_p,):
+        raise ValueError(f"p must have shape {(expected_p,)}, got {p_vec.shape}")
+
+    return _join_state(u_vec, v_vec), str(_STEADY_GUESS_PATH)
 
 
 def _snapshot_from_fields(

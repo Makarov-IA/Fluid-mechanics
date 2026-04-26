@@ -19,7 +19,7 @@ output:
   video_fps: 30
   video_speed: 1
   save_velocity_change_plot: true
-  # Save the snapshot nearest to this time into plots/fixed_time_state/state.csv.
+  # Save the snapshot nearest to this time into plots/fixed_time_state/*.pkl.
   fixed_time_state_t: 2.2
 
 convergence:

@@ -19,7 +19,8 @@ from viz.plots import (
     save_divergence_plot,
     save_final_figure,
     save_iterate_change_plot,
-    save_state_csv,
+    save_mac_state_pickle,
+    save_state_pickle,
     save_velocity_change_plot,
 )
 from viz.video import render_videos
@@ -38,10 +39,10 @@ def _cell_centres(cfg: SimConfig) -> tuple[np.ndarray, np.ndarray]:
 def _nearest_snapshot(
     snapshots: list[Snapshot],
     t_target: float,
-) -> tuple[Snapshot, float]:
+) -> tuple[int, Snapshot, float]:
     """Return the snapshot whose time is closest to t_target."""
-    snap = min(snapshots, key=lambda s: abs(s.t - t_target))
-    return snap, abs(float(snap.t) - t_target)
+    idx, snap = min(enumerate(snapshots), key=lambda item: abs(item[1].t - t_target))
+    return idx, snap, abs(float(snap.t) - t_target)
 
 
 def _print_simulation_config(cfg: SimConfig) -> None:
@@ -69,7 +70,7 @@ def _print_simulation_config(cfg: SimConfig) -> None:
 
 
 def _print_steady_config(cfg: SimConfig) -> None:
-    guess_path = PROJECT_DIR / "plots" / "fixed_time_state" / "state.csv"
+    guess_path = PROJECT_DIR / "plots" / "fixed_time_state" / "state_internal.pkl"
     nu_u = (cfg.nx - 1) * cfg.ny
     nv_u = cfg.nx * (cfg.ny - 1)
     np_u = cfg.nx * cfg.ny
@@ -120,7 +121,7 @@ def _run_simulation(cfg: SimConfig) -> None:
     console.print(f"  [green]✓[/green] {len(snapshots)} snapshots collected")
 
     final_snapshot = snapshots[-1]
-    guess_snapshot, guess_dt = _nearest_snapshot(snapshots, cfg.fixed_time_state_t)
+    guess_idx, guess_snapshot, guess_dt = _nearest_snapshot(snapshots, cfg.fixed_time_state_t)
     speed_levels, p_levels, omega_levels = compute_colour_levels(snapshots)
 
     with console.status("[cyan]Saving plots…[/cyan]"):
@@ -144,8 +145,8 @@ def _run_simulation(cfg: SimConfig) -> None:
             omega_levels,
             panel_subdir="final_state",
         )
-        final_csv_path = out_dir / "final_state" / "state.csv"
-        save_state_csv(final_snapshot, xc, yc, final_csv_path)
+        final_state_path = out_dir / "final_state" / "state.pkl"
+        save_state_pickle(final_snapshot, xc, yc, final_state_path)
 
         guess_paths = save_final_figure(
             guess_snapshot,
@@ -158,8 +159,15 @@ def _run_simulation(cfg: SimConfig) -> None:
             omega_levels,
             panel_subdir="fixed_time_state",
         )
-        guess_csv_path = out_dir / "fixed_time_state" / "state.csv"
-        save_state_csv(guess_snapshot, xc, yc, guess_csv_path)
+        guess_state_path = out_dir / "fixed_time_state" / "state.pkl"
+        guess_internal_path = out_dir / "fixed_time_state" / "state_internal.pkl"
+        save_state_pickle(guess_snapshot, xc, yc, guess_state_path)
+        save_mac_state_pickle(
+            result.mac_states[guess_idx],
+            cfg,
+            guess_snapshot,
+            guess_internal_path,
+        )
 
     video_paths = render_videos(
         snapshots,
@@ -180,10 +188,11 @@ def _run_simulation(cfg: SimConfig) -> None:
         table.add_row("✓ velocity-change", str(velocity_change_path))
     for path in final_paths:
         table.add_row(f"✓ final/{path.name}", str(path))
-    table.add_row("✓ final/state.csv", str(final_csv_path))
+    table.add_row("✓ final/state.pkl", str(final_state_path))
     for path in guess_paths:
         table.add_row(f"✓ fixed-time/{path.name}", str(path))
-    table.add_row("✓ fixed-time/state.csv", str(guess_csv_path))
+    table.add_row("✓ fixed-time/state.pkl", str(guess_state_path))
+    table.add_row("✓ fixed-time/state_internal.pkl", str(guess_internal_path))
     table.add_row(
         "✓ steady guess target",
         (
@@ -231,16 +240,16 @@ def _run_steady(cfg: SimConfig) -> None:
             omega_levels,
             panel_subdir="",
         )
-        csv_path = out_dir / "state.csv"
+        state_path = out_dir / "state.pkl"
         change_plot_path = save_iterate_change_plot(result.iterate_change_inf, out_dir)
-        save_state_csv(snap, xc, yc, csv_path)
+        save_state_pickle(snap, xc, yc, state_path)
 
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="bold green")
     table.add_column(style="dim")
     for path in final_paths:
         table.add_row(f"✓ steady/{path.name}", str(path))
-    table.add_row("✓ steady/state.csv", str(csv_path))
+    table.add_row("✓ steady/state.pkl", str(state_path))
     table.add_row("✓ steady/steady_iterate_change.png", str(change_plot_path))
     console.print(Panel(table, title="[bold]Saved files[/bold]", expand=False))
 

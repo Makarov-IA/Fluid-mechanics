@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import pickle
 from pathlib import Path
 
 import matplotlib
@@ -13,7 +14,7 @@ import numpy as np
 from PIL import Image
 import scipy.ndimage as ndi
 
-from solver.config import SimConfig, Snapshot
+from solver.config import MacState, SimConfig, Snapshot
 
 matplotlib.use("Agg")
 
@@ -383,16 +384,46 @@ def save_final_figure(
     return saved
 
 
-def save_state_csv(
+def save_state_pickle(
     snap: Snapshot,
     xc: np.ndarray,
     yc: np.ndarray,
     path: Path,
 ) -> None:
-    """Save one cell-centred state (x, y, u, v, p) as CSV."""
+    """Save one cell-centred state as a pickle dict with x/y/u/v/p arrays."""
     path.parent.mkdir(parents=True, exist_ok=True)
     x_grid, y_grid = np.meshgrid(xc, yc, indexing="ij")
-    data = np.column_stack(
-        [x_grid.ravel(), y_grid.ravel(), snap.uc.ravel(), snap.vc.ravel(), snap.p.ravel()]
-    )
-    np.savetxt(path, data, delimiter=",", header="x,y,u,v,p", comments="", fmt="%.8f")
+    state = {
+        "x": x_grid,
+        "y": y_grid,
+        "u": snap.uc,
+        "v": snap.vc,
+        "p": snap.p,
+    }
+    with path.open("wb") as fh:
+        pickle.dump(state, fh, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def save_mac_state_pickle(
+    mac_state: MacState,
+    cfg: SimConfig,
+    snap: Snapshot,
+    path: Path,
+) -> None:
+    """Save exact internal MAC unknowns used by steady mode."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state = {
+        "nx": cfg.nx,
+        "ny": cfg.ny,
+        "lx": cfg.lx,
+        "ly": cfg.ly,
+        "nu": cfg.nu,
+        "dt": cfg.dt,
+        "step": snap.step,
+        "t": snap.t,
+        "u_vec": np.asarray(mac_state.u_vec, dtype=np.float64),
+        "v_vec": np.asarray(mac_state.v_vec, dtype=np.float64),
+        "p": np.asarray(mac_state.p, dtype=np.float64),
+    }
+    with path.open("wb") as fh:
+        pickle.dump(state, fh, protocol=pickle.HIGHEST_PROTOCOL)

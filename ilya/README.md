@@ -30,8 +30,10 @@ Only two user-facing modes are kept in the project:
    This writes:
 
    - `plots/final_state/*` — final-time plots,
-   - `plots/fixed_time_state/state.csv` — snapshot nearest to
+   - `plots/fixed_time_state/state.pkl` — cell-centred snapshot nearest to
      `output.fixed_time_state_t`,
+   - `plots/fixed_time_state/state_internal.pkl` — exact MAC-state used by
+     `steady`,
    - `plots/*.mp4` — videos,
    - `plots/stokes_velocity_change.png` only when
      `output.save_velocity_change_plot: true`.
@@ -42,7 +44,8 @@ Only two user-facing modes are kept in the project:
    make steady
    ```
 
-   `steady` reads only `plots/fixed_time_state/state.csv` as its initial guess.
+   `steady` reads only `plots/fixed_time_state/state_internal.pkl` as its
+   initial guess.
 
 ## Configuration
 
@@ -53,7 +56,7 @@ All runtime parameters live in `config.yaml`.
 - `output.save_velocity_change_plot`: opt-in plot of
   `||U_n - U_{n-1}||_inf` versus time
 - `output.fixed_time_state_t`: target time for the snapshot exported to
-  `plots/fixed_time_state/state.csv`
+  `plots/fixed_time_state/*.pkl`
 - `convergence.tol`: early stop for simulation mode
 - `steady_solver.*`: Newton-GMRES parameters
 - `boundary`, `forcing`: symbolic expressions evaluated with NumPy

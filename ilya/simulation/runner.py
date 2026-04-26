@@ -17,7 +17,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from solver.config import SimConfig, Snapshot
+from solver.config import MacState, SimConfig, Snapshot
 from solver.lib import StokesMACLib
 
 console = Console()
@@ -28,6 +28,7 @@ class SimulationResult:
     """Full set of outputs collected during one simulation run."""
 
     snapshots: list[Snapshot]
+    mac_states: list[MacState]
     t_history: list[float]
     div_history: list[float]
     velocity_change_history: list[float]
@@ -84,6 +85,7 @@ def run_simulation(
 ) -> SimulationResult:
     """Run the time integration using batch C++ steps."""
     snapshots: list[Snapshot] = []
+    mac_states: list[MacState] = []
     t_history: list[float] = []
     div_history: list[float] = []
     velocity_change_history: list[float] = []
@@ -141,6 +143,7 @@ def run_simulation(
                 velocity_change_history.extend(changes.tolist())
 
                 p, u, v = solver.get_fields()
+                u_vec, v_vec, p_vec = solver.get_state()
                 uc, vc = _cell_centred_velocity(u, v)
                 omega = _vorticity(uc, vc, xc, yc)
                 snapshots.append(
@@ -153,6 +156,7 @@ def run_simulation(
                         omega=omega.astype(np.float32),
                     )
                 )
+                mac_states.append(MacState(u_vec=u_vec, v_vec=v_vec, p=p_vec))
 
                 vel_change = float(changes[-1]) if len(changes) else None
                 if vel_change is not None and cfg.conv_tol > 0 and vel_change < cfg.conv_tol:
@@ -178,6 +182,7 @@ def run_simulation(
 
     return SimulationResult(
         snapshots=snapshots,
+        mac_states=mac_states,
         t_history=t_history,
         div_history=div_history,
         velocity_change_history=velocity_change_history,

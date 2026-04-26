@@ -50,6 +50,15 @@ class Snapshot:
 
 
 @dataclass
+class MacState:
+    """Exact internal MAC solver state in C++ unknown ordering."""
+
+    u_vec: np.ndarray
+    v_vec: np.ndarray
+    p: np.ndarray
+
+
+@dataclass
 class SimConfig:
     """All physical, numerical, and output parameters for one run."""
 
