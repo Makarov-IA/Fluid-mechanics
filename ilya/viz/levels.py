@@ -9,8 +9,8 @@ from solver.config import Snapshot
 
 def compute_colour_levels(
     snapshots: list[Snapshot],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-    """Return (speed_levels, p_levels, omega_levels, speed_max)."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return shared colour levels for speed, pressure, and vorticity."""
     speed_max = 0.0
     p_parts: list[np.ndarray] = []
     omega_abs_parts: list[np.ndarray] = []
@@ -33,4 +33,4 @@ def compute_colour_levels(
     omega_max = max(float(np.percentile(np.concatenate(omega_abs_parts), 98.0)), 1e-12)
     ol = np.linspace(-omega_max, omega_max, 61)
 
-    return sl, pl, ol, speed_max
+    return sl, pl, ol

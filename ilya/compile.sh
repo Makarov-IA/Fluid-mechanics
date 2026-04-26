@@ -1,53 +1,69 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Определение ОС
-OS="$(uname -s)"
+os="$(uname -s)"
+cxx="g++"
+ext=""
+omp_flags=()
+static_flags=()
 
-# Настройки по умолчанию
-CXX="g++"
-EXT=""
-STATIC_FLAGS=""
-OMP_FLAGS=""
+case "$os" in
+    Darwin)
+        echo "Detected: macOS"
+        cxx="clang++"
+        ext="dylib"
+        libomp="$(brew --prefix libomp 2>/dev/null || true)"
+        if [[ -d "$libomp" ]]; then
+            omp_flags=(
+                -Xpreprocessor
+                -fopenmp
+                "-I${libomp}/include"
+                "-L${libomp}/lib"
+                -lomp
+            )
+            echo "OpenMP: enabled (libomp at ${libomp})"
+        else
+            echo "OpenMP: disabled (run 'brew install libomp' to enable)"
+        fi
+        ;;
+    MINGW64*|MSYS*|Windows*)
+        echo "Detected: Windows"
+        ext="dll"
+        omp_flags=(-fopenmp)
+        static_flags=(-static -static-libgcc -static-libstdc++)
+        ;;
+    *)
+        echo "Detected: Linux"
+        ext="so"
+        omp_flags=(-fopenmp)
+        ;;
+esac
 
-if [[ "$OS" == "Darwin" ]]; then
-    echo "Detected: macOS"
-    CXX="clang++"
-    EXT="dylib"
-    STATIC_FLAGS=""
-    # OpenMP on macOS requires libomp (brew install libomp)
-    LIBOMP="$(brew --prefix libomp 2>/dev/null || true)"
-    if [[ -d "$LIBOMP" ]]; then
-        OMP_FLAGS="-Xpreprocessor -fopenmp -I${LIBOMP}/include -L${LIBOMP}/lib -lomp"
-        echo "OpenMP: enabled (libomp at ${LIBOMP})"
-    else
-        echo "OpenMP: disabled (run 'brew install libomp' to enable)"
-    fi
-elif [[ "$OS" == "MINGW64"* ]] || [[ "$OS" == "MSYS"* ]] || [[ "$OS" == "Windows"* ]]; then
-    echo "Detected: Windows"
-    CXX="g++"
-    EXT="dll"
-    STATIC_FLAGS="-static -static-libgcc -static-libstdc++"
-    OMP_FLAGS="-fopenmp"
-else
-    echo "Detected: Linux"
-    CXX="g++"
-    EXT="so"
-    STATIC_FLAGS=""
-    OMP_FLAGS="-fopenmp"
+output_name="solver.${ext}"
+echo "Building ${output_name} with ${cxx}..."
+
+cmd=(
+    "${cxx}"
+    -O3
+    -std=c++17
+    -shared
+    -fPIC
+    -I .
+    -I ../External_libs
+)
+
+if ((${#omp_flags[@]})); then
+    cmd+=("${omp_flags[@]}")
 fi
 
-OUTPUT_NAME="solver.${EXT}"
+cmd+=(stokes_mac.cpp)
 
-echo "Building ${OUTPUT_NAME} with ${CXX}..."
+if ((${#static_flags[@]})); then
+    cmd+=("${static_flags[@]}")
+fi
 
-# Компиляция
-${CXX} -O3 -std=c++17 -shared -fPIC \
-  -I . \
-  -I ../External_libs \
-  ${OMP_FLAGS} \
-  stokes_mac.cpp \
-  ${STATIC_FLAGS} \
-  -o "${OUTPUT_NAME}"
+cmd+=(-o "${output_name}")
 
-echo "Built: ${OUTPUT_NAME}"
+"${cmd[@]}"
+
+echo "Built: ${output_name}"

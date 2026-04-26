@@ -50,6 +50,16 @@ public:
     // div_out must point to a caller-allocated array of at least n_steps doubles.
     void run_steps(double t_start, int n_steps, double* div_out);
 
+    // Run n_steps and store diagnostics for every internal solver step.
+    // change_out[k] = ||U_k - U_{k-1}||_inf for the velocity field.
+    void run_steps_with_force_diagnostics(double t_start, int n_steps,
+                                          const double* fu, const double* fv,
+                                          double* div_out,
+                                          double* change_out);
+    void run_steps_diagnostics(double t_start, int n_steps,
+                               double* div_out,
+                               double* change_out);
+
     // Set Dirichlet boundary conditions from arrays (call once before stepping).
     //
     // Ghost-correction arrays (enforce value at the wall mid-face):
@@ -75,9 +85,25 @@ public:
     [[nodiscard]] const double* u_data() const { return u_.data(); }
     [[nodiscard]] const double* v_data() const { return v_.data(); }
 
+    // Overwrite the current nonlinear state from interior unknown arrays.
+    //   u_interior: size (Nx-1)*Ny
+    //   v_interior: size Nx*(Ny-1)
+    //   p_cells   : size Nx*Ny (optional, NULL -> zero pressure)
+    void set_state_arrays(const double* u_interior,
+                          const double* v_interior,
+                          const double* p_cells);
+
+    // Export the current nonlinear state in the same unknown ordering used by
+    // the monolithic system. Any NULL output pointer is skipped.
+    void get_state_arrays(double* u_interior,
+                          double* v_interior,
+                          double* p_cells) const;
+
     int    nx() const { return nx_; }
     int    ny() const { return ny_; }
     double dt() const { return dt_; }
+
+    [[nodiscard]] const Eigen::SparseMatrix<double>& system_matrix() const { return system_mat_; }
 
 private:
     // -----------------------------------------------------------------------
@@ -180,8 +206,13 @@ private:
     void compute_advection(const std::vector<double>& u,
                            const std::vector<double>& v);
 
+    // Scatter sol_ back into (u_, v_, p_) and return max velocity change.
+    double scatter_solution_and_measure_velocity_change();
+
     // Return max|div u| over all non-gauge pressure cells.
     double max_divergence() const;
+
+    double last_velocity_change_ = 0.0;
 };
 
 
@@ -200,6 +231,10 @@ extern "C" {
     // Batch step with zero body force: fills div_out[0..n_steps-1]
     void         stokes_mac_run_steps_c(void* handle, double t_start,
                                         int n_steps, double* div_out);
+    // Batch step with zero body force + per-step velocity-change diagnostics.
+    void         stokes_mac_run_steps_diagnostics_c(void* handle, double t_start,
+                                        int n_steps, double* div_out,
+                                        double* change_out);
 
     // Set boundary conditions from pre-evaluated arrays (NULL = leave unchanged).
     void         stokes_mac_set_bc_c   (void* handle,
@@ -213,6 +248,21 @@ extern "C" {
                                         double t_start, int n_steps,
                                         const double* fu, const double* fv,
                                         double* div_out);
+    void         stokes_mac_run_steps_with_force_diagnostics_c(void* handle,
+                                        double t_start, int n_steps,
+                                        const double* fu, const double* fv,
+                                        double* div_out,
+                                        double* change_out);
+
+    // Overwrite/export the current nonlinear state in interior-unknown ordering.
+    void         stokes_mac_set_state_c(void* handle,
+                                        const double* u_interior,
+                                        const double* v_interior,
+                                        const double* p_cells);
+    void         stokes_mac_get_state_c(void* handle,
+                                        double* u_interior,
+                                        double* v_interior,
+                                        double* p_cells);
 
     const double* stokes_mac_get_p_c   (void* handle);
     const double* stokes_mac_get_u_c   (void* handle);

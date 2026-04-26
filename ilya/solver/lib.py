@@ -1,4 +1,4 @@
-"""Python wrapper around the compiled C++ Stokes MAC solver (ctypes)."""
+"""ctypes wrapper around the compiled MAC Navier-Stokes solver."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import numpy as np
 
 
 def find_solver_lib(directory: Path) -> Path:
-    """Return the path to the compiled solver shared library for the current OS."""
+    """Return the platform-specific shared library path."""
     ext_map = {"Darwin": ".dylib", "Windows": ".dll", "Linux": ".so"}
     ext = ext_map.get(platform.system())
     if ext is None:
@@ -20,29 +20,24 @@ def find_solver_lib(directory: Path) -> Path:
     if exact.exists():
         return exact
 
-    candidates = [
-        f for f in directory.iterdir()
-        if f.name.startswith("solver") and f.suffix == ext
-    ]
+    candidates = sorted(
+        path
+        for path in directory.iterdir()
+        if path.name.startswith("solver") and path.suffix == ext
+    )
     if not candidates:
         raise FileNotFoundError(
             f"Solver library not found in {directory}. "
             f"Expected '{exact.name}'. Run compile.sh first."
         )
+
     lib = candidates[0]
     print(f"[warning] Using alternative library name: {lib.name}")
     return lib
 
 
 class StokesMACLib:
-    """
-    Python wrapper around the compiled C++ Stokes MAC solver.
-
-    Grid conventions (see stokes_mac.h):
-        p[i, j]  shape (Nx,   Ny  )  — pressure at cell centres
-        u[i, j]  shape (Nx+1, Ny  )  — x-velocity at vertical faces
-        v[i, j]  shape (Nx,   Ny+1)  — y-velocity at horizontal faces
-    """
+    """Python wrapper around the compiled C++ MAC solver."""
 
     def __init__(
         self,
@@ -56,6 +51,9 @@ class StokesMACLib:
     ) -> None:
         self.nx = nx
         self.ny = ny
+        self._nu = (nx - 1) * ny
+        self._nv = nx * (ny - 1)
+        self._np = nx * ny
         self._handle: ct.c_void_p | None = None
 
         try:
@@ -109,6 +107,23 @@ class StokesMACLib:
         )
         return div_out
 
+    def run_steps_diagnostics(
+        self,
+        t_start: float,
+        n_steps: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Run n_steps with zero body force and return (div, ||ΔU||∞) per step."""
+        div_out = np.empty(n_steps, dtype=np.float64)
+        change_out = np.empty(n_steps, dtype=np.float64)
+        self._dll.stokes_mac_run_steps_diagnostics_c(
+            self._handle,
+            ct.c_double(t_start),
+            ct.c_int(n_steps),
+            div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+            change_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+        )
+        return div_out, change_out
+
     def run_steps_with_force(
         self,
         t_start: float,
@@ -116,10 +131,10 @@ class StokesMACLib:
         fu: np.ndarray | None,
         fv: np.ndarray | None,
     ) -> np.ndarray:
-        """Run n_steps with constant pre-evaluated force arrays. Returns max|div u| per step."""
+        """Run n_steps with constant pre-evaluated force arrays."""
         div_out = np.empty(n_steps, dtype=np.float64)
 
-        def _ptr_or_null(arr):
+        def _ptr_or_null(arr: np.ndarray | None) -> ct.POINTER(ct.c_double):
             if arr is None:
                 return ct.cast(None, ct.POINTER(ct.c_double))
             return arr.ctypes.data_as(ct.POINTER(ct.c_double))
@@ -134,18 +149,101 @@ class StokesMACLib:
         )
         return div_out
 
-    def get_fields(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Return (p, u, v) arrays on the MAC grid (fresh float64 copies)."""
-        p = self._copy_field(
-            self._dll.stokes_mac_get_p_c(self._handle), (self.nx, self.ny)
+    def run_steps_with_force_diagnostics(
+        self,
+        t_start: float,
+        n_steps: int,
+        fu: np.ndarray | None,
+        fv: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Run n_steps with constant force arrays and return (div, ||ΔU||∞) per step."""
+        div_out = np.empty(n_steps, dtype=np.float64)
+        change_out = np.empty(n_steps, dtype=np.float64)
+
+        def _ptr_or_null(arr: np.ndarray | None) -> ct.POINTER(ct.c_double):
+            if arr is None:
+                return ct.cast(None, ct.POINTER(ct.c_double))
+            return arr.ctypes.data_as(ct.POINTER(ct.c_double))
+
+        self._dll.stokes_mac_run_steps_with_force_diagnostics_c(
+            self._handle,
+            ct.c_double(t_start),
+            ct.c_int(n_steps),
+            _ptr_or_null(fu),
+            _ptr_or_null(fv),
+            div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+            change_out.ctypes.data_as(ct.POINTER(ct.c_double)),
         )
+        return div_out, change_out
+
+    def get_fields(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return (p, u, v) arrays on the MAC grid."""
+        p = self._copy_field(self._dll.stokes_mac_get_p_c(self._handle), (self.nx, self.ny))
         u = self._copy_field(
-            self._dll.stokes_mac_get_u_c(self._handle), (self.nx + 1, self.ny)
+            self._dll.stokes_mac_get_u_c(self._handle),
+            (self.nx + 1, self.ny),
         )
         v = self._copy_field(
-            self._dll.stokes_mac_get_v_c(self._handle), (self.nx, self.ny + 1)
+            self._dll.stokes_mac_get_v_c(self._handle),
+            (self.nx, self.ny + 1),
         )
         return p, u, v
+
+    def set_state(
+        self,
+        u_vec: np.ndarray,
+        v_vec: np.ndarray,
+        p_vec: np.ndarray | None = None,
+    ) -> None:
+        """Overwrite the current solver state from interior unknown arrays."""
+        u_arr = np.ascontiguousarray(u_vec, dtype=np.float64)
+        v_arr = np.ascontiguousarray(v_vec, dtype=np.float64)
+        if u_arr.shape != (self._nu,):
+            raise ValueError(f"u_vec must have shape {(self._nu,)}, got {u_arr.shape}")
+        if v_arr.shape != (self._nv,):
+            raise ValueError(f"v_vec must have shape {(self._nv,)}, got {v_arr.shape}")
+
+        double_ptr = ct.POINTER(ct.c_double)
+        if p_vec is not None:
+            p_arr = np.ascontiguousarray(p_vec, dtype=np.float64)
+            if p_arr.shape != (self._np,):
+                raise ValueError(f"p_vec must have shape {(self._np,)}, got {p_arr.shape}")
+            p_ptr = p_arr.ctypes.data_as(double_ptr)
+        else:
+            p_ptr = ct.cast(None, double_ptr)
+
+        self._dll.stokes_mac_set_state_c(
+            self._handle,
+            u_arr.ctypes.data_as(double_ptr),
+            v_arr.ctypes.data_as(double_ptr),
+            p_ptr,
+        )
+
+    def get_state(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return (u_interior, v_interior, p_cells) in solver unknown ordering."""
+        u_arr = np.empty(self._nu, dtype=np.float64)
+        v_arr = np.empty(self._nv, dtype=np.float64)
+        p_arr = np.empty(self._np, dtype=np.float64)
+        double_ptr = ct.POINTER(ct.c_double)
+        self._dll.stokes_mac_get_state_c(
+            self._handle,
+            u_arr.ctypes.data_as(double_ptr),
+            v_arr.ctypes.data_as(double_ptr),
+            p_arr.ctypes.data_as(double_ptr),
+        )
+        return u_arr, v_arr, p_arr
+
+    @property
+    def nu_u(self) -> int:
+        return self._nu
+
+    @property
+    def nv_u(self) -> int:
+        return self._nv
+
+    @property
+    def np_u(self) -> int:
+        return self._np
 
     def close(self) -> None:
         if self._handle is not None:
@@ -155,30 +253,85 @@ class StokesMACLib:
     def _bind_c_api(self) -> None:
         dll = self._dll
         dll.stokes_mac_create_c.argtypes = [
-            ct.c_int, ct.c_int, ct.c_double, ct.c_double, ct.c_double, ct.c_double,
+            ct.c_int,
+            ct.c_int,
+            ct.c_double,
+            ct.c_double,
+            ct.c_double,
+            ct.c_double,
         ]
         dll.stokes_mac_create_c.restype = ct.c_void_p
+
         dll.stokes_mac_free_c.argtypes = [ct.c_void_p]
         dll.stokes_mac_free_c.restype = None
+
         dll.stokes_mac_run_steps_c.argtypes = [
-            ct.c_void_p, ct.c_double, ct.c_int, ct.POINTER(ct.c_double),
+            ct.c_void_p,
+            ct.c_double,
+            ct.c_int,
+            ct.POINTER(ct.c_double),
         ]
         dll.stokes_mac_run_steps_c.restype = None
 
-        _dbl_p = ct.POINTER(ct.c_double)
+        dll.stokes_mac_run_steps_diagnostics_c.argtypes = [
+            ct.c_void_p,
+            ct.c_double,
+            ct.c_int,
+            ct.POINTER(ct.c_double),
+            ct.POINTER(ct.c_double),
+        ]
+        dll.stokes_mac_run_steps_diagnostics_c.restype = None
+
+        double_ptr = ct.POINTER(ct.c_double)
         dll.stokes_mac_set_bc_c.argtypes = [
             ct.c_void_p,
-            _dbl_p, _dbl_p, _dbl_p, _dbl_p,  # u_top, u_bot, v_left, v_right
-            _dbl_p, _dbl_p, _dbl_p, _dbl_p,  # u_left, u_right, v_bot, v_top
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
         ]
         dll.stokes_mac_set_bc_c.restype = None
 
         dll.stokes_mac_run_steps_with_force_c.argtypes = [
-            ct.c_void_p, ct.c_double, ct.c_int,
-            _dbl_p, _dbl_p,  # fu, fv (may be NULL)
-            _dbl_p,          # div_out
+            ct.c_void_p,
+            ct.c_double,
+            ct.c_int,
+            double_ptr,
+            double_ptr,
+            double_ptr,
         ]
         dll.stokes_mac_run_steps_with_force_c.restype = None
+
+        dll.stokes_mac_run_steps_with_force_diagnostics_c.argtypes = [
+            ct.c_void_p,
+            ct.c_double,
+            ct.c_int,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        dll.stokes_mac_run_steps_with_force_diagnostics_c.restype = None
+
+        dll.stokes_mac_set_state_c.argtypes = [
+            ct.c_void_p,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        dll.stokes_mac_set_state_c.restype = None
+
+        dll.stokes_mac_get_state_c.argtypes = [
+            ct.c_void_p,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        dll.stokes_mac_get_state_c.restype = None
 
         for name in ("stokes_mac_get_p_c", "stokes_mac_get_u_c", "stokes_mac_get_v_c"):
             fn = getattr(dll, name)
@@ -186,8 +339,10 @@ class StokesMACLib:
             fn.restype = ct.POINTER(ct.c_double)
 
     def _copy_field(
-        self, ptr: ct.POINTER(ct.c_double), shape_xy: tuple[int, int]
+        self,
+        ptr: ct.POINTER(ct.c_double),
+        shape_xy: tuple[int, int],
     ) -> np.ndarray:
-        """Copy a C row-major array into a (Nx, Ny) numpy array (x-first)."""
+        """Copy a C row-major array into a (Nx, Ny) NumPy array (x-first)."""
         nx, ny = shape_xy
         return np.ctypeslib.as_array(ptr, shape=(nx * ny,)).copy().reshape(ny, nx).T

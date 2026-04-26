@@ -144,6 +144,38 @@ void StokesMac2D::compute_advection(const std::vector<double>& u,
     }
 }
 
+double StokesMac2D::scatter_solution_and_measure_velocity_change() {
+    double max_u_change = 0.0;
+    #pragma omp parallel for collapse(2) schedule(static) reduction(max:max_u_change)
+    for (int j = 0; j < ny_; ++j) {
+        for (int i = 1; i < nx_; ++i) {
+            const double new_u = sol_[u_unknown_idx(i, j)];
+            max_u_change = std::max(max_u_change, std::abs(new_u - u_[u_idx(i, j)]));
+            u_[u_idx(i, j)] = new_u;
+        }
+    }
+
+    double max_v_change = 0.0;
+    #pragma omp parallel for collapse(2) schedule(static) reduction(max:max_v_change)
+    for (int j = 1; j < ny_; ++j) {
+        for (int i = 0; i < nx_; ++i) {
+            const double new_v = sol_[v_unknown_idx(i, j)];
+            max_v_change = std::max(max_v_change, std::abs(new_v - v_[v_idx(i, j)]));
+            v_[v_idx(i, j)] = new_v;
+        }
+    }
+
+    #pragma omp parallel for collapse(2) schedule(static)
+    for (int j = 0; j < ny_; ++j) {
+        for (int i = 0; i < nx_; ++i) {
+            p_[p_idx(i, j)] = sol_[p_unknown_idx(i, j)];
+        }
+    }
+
+    apply_velocity_bc(u_, v_);
+    return std::max(max_u_change, max_v_change);
+}
+
 // ---------------------------------------------------------------------------
 // Build the monolithic linear system  A·x = b  (called once in constructor)
 //
@@ -316,32 +348,13 @@ double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
     if (system_solver_.info() != Eigen::Success)
         throw std::runtime_error("Monolithic linear solve failed");
 
-    // ------------------------------------------------------------------
-    // Scatter solution back into the field arrays (in-place update)
-    // ------------------------------------------------------------------
-    #pragma omp parallel for collapse(2) schedule(static)
-    for (int j = 0; j < ny_; ++j)
-        for (int i = 1; i < nx_; ++i)
-            u_[u_idx(i,j)] = sol_[u_unknown_idx(i,j)];
-
-    #pragma omp parallel for collapse(2) schedule(static)
-    for (int j = 1; j < ny_; ++j)
-        for (int i = 0; i < nx_; ++i)
-            v_[v_idx(i,j)] = sol_[v_unknown_idx(i,j)];
-
-    #pragma omp parallel for collapse(2) schedule(static)
-    for (int j = 0; j < ny_; ++j)
-        for (int i = 0; i < nx_; ++i)
-            p_[p_idx(i,j)] = sol_[p_unknown_idx(i,j)];
-
-    apply_velocity_bc(u_, v_);
+    last_velocity_change_ = scatter_solution_and_measure_velocity_change();
 
     return max_divergence();
 }
 
 void StokesMac2D::run_steps(double t_start, int n_steps, double* div_out) {
-    for (int k = 0; k < n_steps; ++k)
-        div_out[k] = step(t_start + (k + 1) * dt_, nullptr, nullptr);
+    run_steps_diagnostics(t_start, n_steps, div_out, nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -382,30 +395,37 @@ double StokesMac2D::step_with_force_arrays(double t,
     if (system_solver_.info() != Eigen::Success)
         throw std::runtime_error("Monolithic linear solve failed");
 
-    #pragma omp parallel for collapse(2) schedule(static)
-    for (int j = 0; j < ny_; ++j)
-        for (int i = 1; i < nx_; ++i)
-            u_[u_idx(i,j)] = sol_[u_unknown_idx(i,j)];
-
-    #pragma omp parallel for collapse(2) schedule(static)
-    for (int j = 1; j < ny_; ++j)
-        for (int i = 0; i < nx_; ++i)
-            v_[v_idx(i,j)] = sol_[v_unknown_idx(i,j)];
-
-    #pragma omp parallel for collapse(2) schedule(static)
-    for (int j = 0; j < ny_; ++j)
-        for (int i = 0; i < nx_; ++i)
-            p_[p_idx(i,j)] = sol_[p_unknown_idx(i,j)];
-
-    apply_velocity_bc(u_, v_);
+    last_velocity_change_ = scatter_solution_and_measure_velocity_change();
     return max_divergence();
 }
 
 void StokesMac2D::run_steps_with_force(double t_start, int n_steps,
                                         const double* fu, const double* fv,
                                         double* div_out) {
-    for (int k = 0; k < n_steps; ++k)
+    run_steps_with_force_diagnostics(t_start, n_steps, fu, fv, div_out, nullptr);
+}
+
+void StokesMac2D::run_steps_diagnostics(double t_start, int n_steps,
+                                         double* div_out,
+                                         double* change_out) {
+    for (int k = 0; k < n_steps; ++k) {
+        div_out[k] = step(t_start + (k + 1) * dt_, nullptr, nullptr);
+        if (change_out) {
+            change_out[k] = last_velocity_change_;
+        }
+    }
+}
+
+void StokesMac2D::run_steps_with_force_diagnostics(double t_start, int n_steps,
+                                                    const double* fu, const double* fv,
+                                                    double* div_out,
+                                                    double* change_out) {
+    for (int k = 0; k < n_steps; ++k) {
         div_out[k] = step_with_force_arrays(t_start + (k + 1) * dt_, fu, fv);
+        if (change_out) {
+            change_out[k] = last_velocity_change_;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +445,55 @@ void StokesMac2D::set_bc_arrays(const double* u_top,   const double* u_bot,
     if (v_bot)   std::copy(v_bot,   v_bot   + nx_,     bc_v_bot_.begin());
     if (v_top)   std::copy(v_top,   v_top   + nx_,     bc_v_top_.begin());
     apply_velocity_bc(u_, v_);
+}
+
+// ---------------------------------------------------------------------------
+// Nonlinear state import/export
+// ---------------------------------------------------------------------------
+
+void StokesMac2D::set_state_arrays(const double* u_interior,
+                                    const double* v_interior,
+                                    const double* p_cells) {
+    if (!u_interior || !v_interior)
+        throw std::invalid_argument("set_state_arrays requires u and v arrays");
+
+    for (int j = 0; j < ny_; ++j)
+        for (int i = 1; i < nx_; ++i)
+            u_[u_idx(i, j)] = u_interior[u_unknown_idx(i, j)];
+
+    for (int j = 1; j < ny_; ++j)
+        for (int i = 0; i < nx_; ++i)
+            v_[v_idx(i, j)] = v_interior[v_unknown_idx(i, j) - nu_unknowns_];
+
+    if (p_cells) {
+        for (int j = 0; j < ny_; ++j)
+            for (int i = 0; i < nx_; ++i)
+                p_[p_idx(i, j)] = p_cells[p_idx(i, j)];
+    } else {
+        std::fill(p_.begin(), p_.end(), 0.0);
+    }
+
+    apply_velocity_bc(u_, v_);
+}
+
+void StokesMac2D::get_state_arrays(double* u_interior,
+                                    double* v_interior,
+                                    double* p_cells) const {
+    if (u_interior) {
+        for (int j = 0; j < ny_; ++j)
+            for (int i = 1; i < nx_; ++i)
+                u_interior[u_unknown_idx(i, j)] = u_[u_idx(i, j)];
+    }
+
+    if (v_interior) {
+        for (int j = 1; j < ny_; ++j)
+            for (int i = 0; i < nx_; ++i)
+                v_interior[v_unknown_idx(i, j) - nu_unknowns_] = v_[v_idx(i, j)];
+    }
+
+    if (p_cells) {
+        std::copy(p_.begin(), p_.end(), p_cells);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -475,6 +544,15 @@ extern "C" void stokes_mac_run_steps_c(void* handle, double t_start,
     reinterpret_cast<StokesMac2D*>(handle)->run_steps(t_start, n_steps, div_out);
 }
 
+extern "C" void stokes_mac_run_steps_diagnostics_c(void* handle, double t_start,
+                                                   int n_steps, double* div_out,
+                                                   double* change_out) {
+    if (!handle || !div_out || !change_out) return;
+    reinterpret_cast<StokesMac2D*>(handle)->run_steps_diagnostics(
+        t_start, n_steps, div_out, change_out
+    );
+}
+
 extern "C" void stokes_mac_set_bc_c(void* handle,
                                     const double* u_top,   const double* u_bot,
                                     const double* v_left,  const double* v_right,
@@ -492,6 +570,39 @@ extern "C" void stokes_mac_run_steps_with_force_c(void* handle,
     if (!handle || !div_out) return;
     reinterpret_cast<StokesMac2D*>(handle)->run_steps_with_force(
         t_start, n_steps, fu, fv, div_out);
+}
+
+extern "C" void stokes_mac_run_steps_with_force_diagnostics_c(
+    void* handle,
+    double t_start,
+    int n_steps,
+    const double* fu,
+    const double* fv,
+    double* div_out,
+    double* change_out
+) {
+    if (!handle || !div_out || !change_out) return;
+    reinterpret_cast<StokesMac2D*>(handle)->run_steps_with_force_diagnostics(
+        t_start, n_steps, fu, fv, div_out, change_out
+    );
+}
+
+extern "C" void stokes_mac_set_state_c(void* handle,
+                                        const double* u_interior,
+                                        const double* v_interior,
+                                        const double* p_cells) {
+    if (!handle) return;
+    reinterpret_cast<StokesMac2D*>(handle)->set_state_arrays(
+        u_interior, v_interior, p_cells);
+}
+
+extern "C" void stokes_mac_get_state_c(void* handle,
+                                        double* u_interior,
+                                        double* v_interior,
+                                        double* p_cells) {
+    if (!handle) return;
+    reinterpret_cast<StokesMac2D*>(handle)->get_state_arrays(
+        u_interior, v_interior, p_cells);
 }
 
 extern "C" const double* stokes_mac_get_p_c(void* handle) {
