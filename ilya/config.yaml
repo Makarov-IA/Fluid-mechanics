@@ -12,15 +12,15 @@ physics:
   nu: 0.00384615384
 
 time:
-  t_end: 6.0
-  n_steps: 20000
+  t_end: 10.0
+  n_steps: 100000
 
 output:
   video_fps: 30
   video_speed: 1
-  save_velocity_change_plot: false
+  save_velocity_change_plot: true
   # Save the snapshot nearest to this time into plots/fixed_time_state/state.csv.
-  fixed_time_state_t: 2.3
+  fixed_time_state_t: 2.2
 
 convergence:
   # Stop early when max velocity change between consecutive solver states

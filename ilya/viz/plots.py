@@ -8,6 +8,7 @@ from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 import numpy as np
 from PIL import Image
 import scipy.ndimage as ndi
@@ -243,8 +244,11 @@ def save_velocity_change_plot(
     path = out_dir / "stokes_velocity_change.png"
     t_plot = np.asarray(t_history, dtype=np.float64)
     change_plot = np.asarray(change_history, dtype=np.float64)
+    cm_per_second = 3.5
+    seconds_span = float(t_plot[-1] - t_plot[0]) if len(t_plot) > 1 else 1.0
+    width_in = max(8.0, seconds_span * cm_per_second / 2.54)
 
-    fig, ax = plt.subplots(figsize=(8.0, 4.5))
+    fig, ax = plt.subplots(figsize=(width_in, 4.5))
     if len(change_plot) > 0:
         ax.semilogy(
             t_plot,
@@ -267,6 +271,9 @@ def save_velocity_change_plot(
     ax.set_title(r"Velocity Step Change vs Time  $\|U_n-U_{n-1}\|_\infty$")
     ax.set_xlabel("t")
     ax.set_ylabel(r"$\|U_n-U_{n-1}\|_\infty$")
+    ax.xaxis.set_major_locator(MultipleLocator(0.1))
+    ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    ax.tick_params(axis="x", labelrotation=90, labelsize=8)
     ax.grid(True, alpha=0.35)
     fig.tight_layout()
     fig.savefig(path, dpi=180)
