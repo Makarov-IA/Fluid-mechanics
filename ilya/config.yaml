@@ -50,9 +50,9 @@ linearization:
 
 projected_run:
   # Runtime settings for `make projected-run`, independent from top-level time/output.
-  t_end: 10.0
+  t_end: 20.0
   n_steps: 100000
-  video_fps: 30
+  video_fps: 10
   video_speed: 1
   save_velocity_change_plot: true
   # Starts simulation from this steady state.
