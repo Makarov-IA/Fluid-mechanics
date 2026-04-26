@@ -241,8 +241,10 @@ def _run_steady(cfg: SimConfig) -> None:
             panel_subdir="",
         )
         state_path = out_dir / "state.pkl"
+        internal_path = out_dir / "state_internal.pkl"
         change_plot_path = save_iterate_change_plot(result.iterate_change_inf, out_dir)
         save_state_pickle(snap, xc, yc, state_path)
+        save_mac_state_pickle(result.mac_state, cfg, snap, internal_path)
 
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="bold green")
@@ -250,6 +252,7 @@ def _run_steady(cfg: SimConfig) -> None:
     for path in final_paths:
         table.add_row(f"✓ steady/{path.name}", str(path))
     table.add_row("✓ steady/state.pkl", str(state_path))
+    table.add_row("✓ steady/state_internal.pkl", str(internal_path))
     table.add_row("✓ steady/steady_iterate_change.png", str(change_plot_path))
     console.print(Panel(table, title="[bold]Saved files[/bold]", expand=False))
 

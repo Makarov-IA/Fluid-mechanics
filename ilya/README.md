@@ -46,6 +46,7 @@ Only two user-facing modes are kept in the project:
 
    `steady` reads only `plots/fixed_time_state/state_internal.pkl` as its
    initial guess.
+   The converged internal state is written to `plots/steady/state_internal.pkl`.
 
 ## Configuration
 

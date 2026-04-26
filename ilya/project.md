@@ -140,9 +140,9 @@ steady_solver:
   max_newton_iters: 12
   residual_tol: 1.0e-8
   krylov_tol: 1.0e-6
-  krylov_maxiter: 40
-  krylov_restart: 25
-  jacobian_rdiff: 1.0e-6
+  krylov_maxiter: 200
+  krylov_restart: 100
+  jacobian_rdiff: 1.0e-4
   line_search: armijo
   min_step: 1.0e-3
 
@@ -802,10 +802,13 @@ plots/steady/streamlines.png
 plots/steady/pressure.png
 plots/steady/vorticity.png
 plots/steady/state.pkl
+plots/steady/state_internal.pkl
 plots/steady/steady_iterate_change.png
 ```
 
 `state.pkl` имеет тот же pickle-формат `{x, y, u, v, p}`.
+`state_internal.pkl` содержит exact MAC-state найденного steady state и является
+правильным файлом для последующей линеаризации.
 
 ## Сходимость и диагностика
 

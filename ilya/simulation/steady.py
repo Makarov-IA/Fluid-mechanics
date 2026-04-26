@@ -11,7 +11,7 @@ import numpy as np
 from rich.console import Console
 import scipy.sparse.linalg as spla
 
-from solver.config import SimConfig, Snapshot
+from solver.config import MacState, SimConfig, Snapshot
 from solver.lib import StokesMACLib, find_solver_lib
 
 console = Console()
@@ -40,6 +40,7 @@ class SteadySolveResult:
     """Outputs of the fixed-point steady solve."""
 
     snapshot: Snapshot
+    mac_state: MacState
     max_div: float
     newton_iters: int
     residual_inf: float
@@ -345,8 +346,10 @@ def solve_steady(
             yc,
             newton_iters,
         )
+        u_final, v_final = _split_state(current.next_state, solver.nu_u)
         return SteadySolveResult(
             snapshot=snap,
+            mac_state=MacState(u_vec=u_final, v_vec=v_final, p=current.p_cells),
             max_div=current.max_div,
             newton_iters=newton_iters,
             residual_inf=current.residual_inf,

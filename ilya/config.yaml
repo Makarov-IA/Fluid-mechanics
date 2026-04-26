@@ -31,9 +31,9 @@ steady_solver:
   max_newton_iters: 12
   residual_tol: 1.0e-8
   krylov_tol: 1.0e-6
-  krylov_maxiter: 40
-  krylov_restart: 25
-  jacobian_rdiff: 1.0e-6
+  krylov_maxiter: 200
+  krylov_restart: 100
+  jacobian_rdiff: 1.0e-4
   line_search: armijo
   min_step: 1.0e-3
 
