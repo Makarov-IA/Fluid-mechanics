@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import pickle
 import re
 
 import numpy as np
@@ -13,6 +12,7 @@ import scipy.sparse.linalg as spla
 
 from solver.config import MacState, SimConfig, Snapshot
 from solver.lib import StokesMACLib, find_solver_lib
+from solver.state_io import join_velocity_state, load_mac_state_pickle, split_velocity_state
 
 console = Console()
 
@@ -49,16 +49,6 @@ class SteadySolveResult:
     iterate_change_inf: list[float]
 
 
-def _join_state(u_vec: np.ndarray, v_vec: np.ndarray) -> np.ndarray:
-    """Concatenate interior u- and v-unknowns into one nonlinear state vector."""
-    return np.concatenate([u_vec, v_vec])
-
-
-def _split_state(state: np.ndarray, nu_u: int) -> tuple[np.ndarray, np.ndarray]:
-    """Split the nonlinear state into interior u- and v-unknown blocks."""
-    return state[:nu_u], state[nu_u:]
-
-
 def _uses_time(expr: str | None) -> bool:
     """Return True when the symbolic expression depends on time."""
     return expr is not None and bool(_TIME_VAR_RE.search(expr))
@@ -89,53 +79,14 @@ def _validate_time_independent(cfg: SimConfig) -> None:
 
 def _load_initial_guess(cfg: SimConfig) -> tuple[np.ndarray, str]:
     """Load exact internal MAC state saved by simulation mode."""
-    if not _STEADY_GUESS_PATH.exists():
+    try:
+        mac_state, _ = load_mac_state_pickle(_STEADY_GUESS_PATH, cfg)
+    except FileNotFoundError as exc:
         raise FileNotFoundError(
             f"Initial guess pickle not found: {_STEADY_GUESS_PATH}. "
             "Run simulation mode first so it writes plots/fixed_time_state/state_internal.pkl."
-        )
-
-    with _STEADY_GUESS_PATH.open("rb") as fh:
-        data = pickle.load(fh)
-
-    if not isinstance(data, dict):
-        raise ValueError(f"{_STEADY_GUESS_PATH} must contain a pickle dictionary")
-
-    required = ("nx", "ny", "lx", "ly", "nu", "dt", "u_vec", "v_vec", "p")
-    missing = [key for key in required if key not in data]
-    if missing:
-        keys = ", ".join(missing)
-        raise ValueError(f"{_STEADY_GUESS_PATH} is missing keys: {keys}")
-
-    saved_nx = int(data.get("nx", -1))
-    saved_ny = int(data.get("ny", -1))
-    if saved_nx != cfg.nx or saved_ny != cfg.ny:
-        raise ValueError(
-            f"{_STEADY_GUESS_PATH} grid {saved_nx}x{saved_ny} does not match "
-            f"config grid {cfg.nx}x{cfg.ny}"
-        )
-
-    for key, current in (("lx", cfg.lx), ("ly", cfg.ly), ("nu", cfg.nu), ("dt", cfg.dt)):
-        saved = float(data[key])
-        if not np.isclose(saved, current, rtol=1e-12, atol=1e-14):
-            raise ValueError(
-                f"{_STEADY_GUESS_PATH} {key}={saved} does not match config {key}={current}"
-            )
-
-    u_vec = np.asarray(data["u_vec"], dtype=np.float64).reshape(-1)
-    v_vec = np.asarray(data["v_vec"], dtype=np.float64).reshape(-1)
-    p_vec = np.asarray(data["p"], dtype=np.float64).reshape(-1)
-    expected_u = (cfg.nx - 1) * cfg.ny
-    expected_v = cfg.nx * (cfg.ny - 1)
-    expected_p = cfg.nx * cfg.ny
-    if u_vec.shape != (expected_u,):
-        raise ValueError(f"u_vec must have shape {(expected_u,)}, got {u_vec.shape}")
-    if v_vec.shape != (expected_v,):
-        raise ValueError(f"v_vec must have shape {(expected_v,)}, got {v_vec.shape}")
-    if p_vec.shape != (expected_p,):
-        raise ValueError(f"p must have shape {(expected_p,)}, got {p_vec.shape}")
-
-    return _join_state(u_vec, v_vec), str(_STEADY_GUESS_PATH)
+        ) from exc
+    return join_velocity_state(mac_state), str(_STEADY_GUESS_PATH)
 
 
 def _snapshot_from_fields(
@@ -177,13 +128,13 @@ class FixedPointMap:
 
     def evaluate(self, state: np.ndarray) -> ResidualEval:
         """Evaluate G(U) = Φ(U) - U for one interior-velocity state vector."""
-        u_vec, v_vec = _split_state(state, self.nu_u)
+        u_vec, v_vec = split_velocity_state(state, self.nu_u)
         self.solver.set_state(u_vec, v_vec)
         divs = self.solver.run_steps_with_force(0.0, 1, self.fu, self.fv)
         max_div = float(divs[-1])
         p_mac, u_mac, v_mac = self.solver.get_fields()
         u_next, v_next, p_cells = self.solver.get_state()
-        next_state = _join_state(u_next, v_next)
+        next_state = np.concatenate([u_next, v_next])
 
         if not np.isfinite(next_state).all() or not np.isfinite(max_div):
             raise RuntimeError("Solver produced NaN/Inf during fixed-point evaluation")
@@ -346,7 +297,7 @@ def solve_steady(
             yc,
             newton_iters,
         )
-        u_final, v_final = _split_state(current.next_state, solver.nu_u)
+        u_final, v_final = split_velocity_state(current.next_state, solver.nu_u)
         return SteadySolveResult(
             snapshot=snap,
             mac_state=MacState(u_vec=u_final, v_vec=v_final, p=current.p_cells),

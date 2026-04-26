@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -82,6 +83,13 @@ def run_simulation(
     lib_path: Path,
     xc: np.ndarray,
     yc: np.ndarray,
+    initial_state: MacState | None = None,
+    force_modifier: Callable[
+        [np.ndarray | None, np.ndarray | None],
+        tuple[np.ndarray | None, np.ndarray | None],
+    ]
+    | None = None,
+    description: str = "Simulation",
 ) -> SimulationResult:
     """Run the time integration using batch C++ steps."""
     snapshots: list[Snapshot] = []
@@ -105,7 +113,7 @@ def run_simulation(
     )
 
     with progress:
-        task = progress.add_task("Simulation", total=n_batches, info="starting…")
+        task = progress.add_task(description, total=n_batches, info="starting…")
         with StokesMACLib(
             lib_path,
             cfg.nx,
@@ -116,14 +124,21 @@ def run_simulation(
             cfg.dt,
         ) as solver:
             solver.set_bc_arrays(cfg.make_bc_arrays())
+            if initial_state is not None:
+                solver.set_state(initial_state.u_vec, initial_state.v_vec, initial_state.p)
 
             step_done = 0
             for batch_start in range(0, cfg.n_steps, cfg.frame_every):
                 batch_n = min(cfg.frame_every, cfg.n_steps - batch_start)
                 t_start = batch_start * cfg.dt
 
+                fu = fv = None
                 if cfg.has_forcing:
                     fu, fv = cfg.make_force_arrays(t=t_start)
+                if force_modifier is not None:
+                    fu, fv = force_modifier(fu, fv)
+
+                if fu is not None or fv is not None:
                     divs, changes = solver.run_steps_with_force_diagnostics(
                         t_start,
                         batch_n,

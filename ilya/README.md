@@ -7,11 +7,15 @@ staggered MAC grid. The scheme is semi-implicit:
 - convection is treated explicitly from the previous time layer,
 - each time step solves one monolithic Stokes system.
 
-Only two user-facing modes are kept in the project:
+The project has four user-facing modes:
 
 - `simulation` — time-dependent run with plots, videos, and a fixed-time state export,
 - `steady` — fixed-point Newton-GMRES solve that starts from the fixed-time state
-  saved by `simulation`.
+  saved by `simulation`,
+- `linearize` — matrix-free eigenmode solve for the operator linearized around
+  `plots/steady/state_internal.pkl`,
+- `projected-run` — simulation from the steady state with the forcing component
+  along selected unstable eigenmodes removed.
 
 ## Workflow
 
@@ -48,6 +52,26 @@ Only two user-facing modes are kept in the project:
    initial guess.
    The converged internal state is written to `plots/steady/state_internal.pkl`.
 
+4. Linearize around the steady state and compute eigenvectors:
+
+   ```bash
+   make linearize
+   ```
+
+   This writes `plots/linearized/eigenpairs.pkl`.
+
+5. Run the projected-forcing simulation:
+
+   ```bash
+   make projected-run
+   ```
+
+   This starts from `plots/steady/state_internal.pkl`, uses
+   `plots/linearized/eigenpairs.pkl`, removes the configured unstable-mode
+   projection from `[fu, fv]`, and writes outputs under `plots/projected_run`.
+   It uses `projected_run.t_end`, `projected_run.n_steps`, and its own video
+   settings. Tolerance-based early stop is always disabled for this mode.
+
 ## Configuration
 
 All runtime parameters live in `config.yaml`.
@@ -60,6 +84,9 @@ All runtime parameters live in `config.yaml`.
   `plots/fixed_time_state/*.pkl`
 - `convergence.tol`: early stop for simulation mode
 - `steady_solver.*`: Newton-GMRES parameters
+- `linearization.*`: matrix-free eigenmode parameters
+- `projected_run.*`: independent projected-run runtime settings and unstable-mode
+  forcing projection parameters
 - `boundary`, `forcing`: symbolic expressions evaluated with NumPy
 
 ## Numerics
@@ -87,3 +114,16 @@ U* = Φ(U*)
 ```
 
 and solves `G(U) = Φ(U) - U = 0` by damped Newton-GMRES.
+
+The linearization mode uses the stationary Navier-Stokes residual with the time
+derivatives set to zero:
+
+```text
+R(U, p) = [(u · ∇)u - νΔu + ∇p - f, ∇·u]
+```
+
+It computes eigenpairs of the velocity operator
+`L = -P D_momentum R(U*)` by matrix-free finite differences, where `P` is the
+MAC pressure projection enforcing `∇·u = 0`. The saved eigenvectors use the
+internal MAC ordering `[u_vec, v_vec, p]`; pressure modes are recovered from the
+projection solve.

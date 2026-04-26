@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -85,6 +85,23 @@ class SimConfig:
     steady_line_search: str = "armijo"
     steady_min_step: float = 1e-3
 
+    linear_state_path: str = "plots/steady/state_internal.pkl"
+    linear_n_eigs: int = 6
+    linear_which: str = "LR"
+    linear_tol: float = 1e-7
+    linear_maxiter: int = 300
+    linear_jacobian_rdiff: float = 1e-5
+
+    projected_state_path: str = "plots/steady/state_internal.pkl"
+    projected_eigenpairs_path: str = "plots/linearized/eigenpairs.pkl"
+    projected_t_end: float | None = None
+    projected_n_steps: int | None = None
+    projected_video_fps: float | None = None
+    projected_video_speed: float | None = None
+    projected_save_velocity_change_plot: bool | None = None
+    projected_real_threshold: float = 1.0
+    projected_projection_rcond: float = 1e-12
+
     forcing_u: str = "0.0"
     forcing_v: str = "0.0"
 
@@ -130,6 +147,26 @@ class SimConfig:
             raise ValueError("steady_line_search must be 'armijo' or 'none'")
         if not (0 < self.steady_min_step <= 1):
             raise ValueError("steady_min_step must be in (0, 1]")
+        if self.linear_n_eigs <= 0:
+            raise ValueError("linear_n_eigs must be positive")
+        if self.linear_which not in ("LM", "SM", "LR", "SR", "LI", "SI"):
+            raise ValueError("linear_which must be one of LM, SM, LR, SR, LI, SI")
+        if self.linear_tol <= 0:
+            raise ValueError("linear_tol must be positive")
+        if self.linear_maxiter <= 0:
+            raise ValueError("linear_maxiter must be positive")
+        if self.linear_jacobian_rdiff <= 0:
+            raise ValueError("linear_jacobian_rdiff must be positive")
+        if self.projected_projection_rcond < 0:
+            raise ValueError("projected_projection_rcond must be non-negative")
+        if self.projected_t_end is not None and self.projected_t_end <= 0:
+            raise ValueError("projected_t_end must be positive")
+        if self.projected_n_steps is not None and self.projected_n_steps <= 0:
+            raise ValueError("projected_n_steps must be positive")
+        if self.projected_video_fps is not None and self.projected_video_fps <= 0:
+            raise ValueError("projected_video_fps must be positive")
+        if self.projected_video_speed is not None and self.projected_video_speed <= 0:
+            raise ValueError("projected_video_speed must be positive")
 
     @property
     def dt(self) -> float:
@@ -149,6 +186,34 @@ class SimConfig:
     def has_forcing(self) -> bool:
         return not (is_zero_expr(self.forcing_u) and is_zero_expr(self.forcing_v))
 
+    def projected_runtime_config(self) -> "SimConfig":
+        """Return a copy with runtime overrides for projected-run."""
+        return replace(
+            self,
+            t_end=self.projected_t_end if self.projected_t_end is not None else self.t_end,
+            n_steps=(
+                self.projected_n_steps
+                if self.projected_n_steps is not None
+                else self.n_steps
+            ),
+            video_fps=(
+                self.projected_video_fps
+                if self.projected_video_fps is not None
+                else self.video_fps
+            ),
+            video_speed=(
+                self.projected_video_speed
+                if self.projected_video_speed is not None
+                else self.video_speed
+            ),
+            save_velocity_change_plot=(
+                self.projected_save_velocity_change_plot
+                if self.projected_save_velocity_change_plot is not None
+                else self.save_velocity_change_plot
+            ),
+            conv_tol=0.0,
+        )
+
     @classmethod
     def from_yaml(cls, path: Path) -> "SimConfig":
         with path.open() as fh:
@@ -159,6 +224,8 @@ class SimConfig:
         output = data.get("output", {}) or {}
         time_data = data.get("time", {}) or {}
         steady = data.get("steady_solver", {}) or {}
+        linear = data.get("linearization", {}) or {}
+        projected = data.get("projected_run", {}) or {}
 
         return cls(
             lx=data["domain"]["lx"],
@@ -181,6 +248,29 @@ class SimConfig:
             steady_jacobian_rdiff=steady.get("jacobian_rdiff", 1e-6),
             steady_line_search=str(steady.get("line_search", "armijo")),
             steady_min_step=steady.get("min_step", 1e-3),
+            linear_state_path=str(linear.get("state_path", "plots/steady/state_internal.pkl")),
+            linear_n_eigs=linear.get("n_eigs", 6),
+            linear_which=str(linear.get("which", "LR")),
+            linear_tol=linear.get("tol", 1e-7),
+            linear_maxiter=linear.get("maxiter", 300),
+            linear_jacobian_rdiff=linear.get("jacobian_rdiff", 1e-5),
+            projected_state_path=str(
+                projected.get("state_path", "plots/steady/state_internal.pkl")
+            ),
+            projected_eigenpairs_path=str(
+                projected.get("eigenpairs_path", "plots/linearized/eigenpairs.pkl")
+            ),
+            projected_t_end=projected.get("t_end"),
+            projected_n_steps=projected.get("n_steps"),
+            projected_video_fps=projected.get("video_fps"),
+            projected_video_speed=projected.get("video_speed"),
+            projected_save_velocity_change_plot=(
+                None
+                if "save_velocity_change_plot" not in projected
+                else bool(projected.get("save_velocity_change_plot"))
+            ),
+            projected_real_threshold=projected.get("real_threshold", 1.0),
+            projected_projection_rcond=projected.get("projection_rcond", 1e-12),
             forcing_u=str(forcing.get("fu", "0.0")),
             forcing_v=str(forcing.get("fv", "0.0")),
             bc_u_top=boundary.get("u_top"),

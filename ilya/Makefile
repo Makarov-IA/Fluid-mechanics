@@ -2,7 +2,7 @@ DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 PYTHON := $(DIR).venv/bin/python
 VENV := $(DIR).venv
 
-.PHONY: compile run steady venv clean-plots clean-lib clean push
+.PHONY: compile run steady linearize projected-run venv clean-plots clean-lib clean push
 
 compile:
 	bash $(DIR)compile.sh
@@ -12,6 +12,12 @@ run:
 
 steady:
 	cd $(DIR) && $(PYTHON) main.py --mode steady
+
+linearize:
+	cd $(DIR) && $(PYTHON) main.py --mode linearize
+
+projected-run:
+	cd $(DIR) && $(PYTHON) main.py --mode projected-run
 
 venv:
 	python3 -m venv $(VENV)

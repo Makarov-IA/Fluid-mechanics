@@ -8,15 +8,16 @@ staggered MAC-сетке. Основная цель текущей версии 
 Newton-GMRES из начального приближения, взятого из симуляции в заданный момент
 времени.
 
-В текущем проекте намеренно оставлены только два пользовательских сценария:
+В текущем проекте есть четыре пользовательских сценария:
 
 - `simulation` - нестационарный расчет по времени.
 - `steady` - поиск стационарного решения как неподвижной точки одного шага по времени.
+- `linearize` - линеаризация около найденного steady-state и поиск собственных векторов.
+- `projected-run` - прогон от steady-state с вычитанием forcing-проекции на выбранные неустойчивые моды.
 
 В текущей версии нет:
 
 - режима `mode` в `config.yaml`;
-- поиска собственных значений;
 - нескольких вариантов начального приближения для steady;
 - начального приближения по среднему, случайному полю, нулю или restart-файлу.
 
@@ -25,6 +26,8 @@ Newton-GMRES из начального приближения, взятого и
 ```bash
 make run
 make steady
+make linearize
+make projected-run
 ```
 
 или напрямую:
@@ -32,6 +35,8 @@ make steady
 ```bash
 .venv/bin/python main.py --mode simulation
 .venv/bin/python main.py --mode steady
+.venv/bin/python main.py --mode linearize
+.venv/bin/python main.py --mode projected-run
 ```
 
 ## Структура проекта
@@ -97,6 +102,8 @@ make venv
 make compile
 make run
 make steady
+make linearize
+make projected-run
 make clean-plots
 make clean-lib
 make clean
@@ -146,6 +153,25 @@ steady_solver:
   line_search: armijo
   min_step: 1.0e-3
 
+linearization:
+  state_path: plots/steady/state_internal.pkl
+  n_eigs: 6
+  which: LR
+  tol: 1.0e-7
+  maxiter: 300
+  jacobian_rdiff: 1.0e-5
+
+projected_run:
+  t_end: 10.0
+  n_steps: 100000
+  video_fps: 30
+  video_speed: 1
+  save_velocity_change_plot: true
+  state_path: plots/steady/state_internal.pkl
+  eigenpairs_path: plots/linearized/eigenpairs.pkl
+  real_threshold: 1.0e-8
+  projection_rcond: 1.0e-12
+
 boundary:
   u_top: "0.0"
 
@@ -167,6 +193,8 @@ forcing:
 - `output.fixed_time_state_t` - время, ближайший snapshot к которому сохраняется в `plots/fixed_time_state/*.pkl`.
 - `convergence.tol` - досрочная остановка simulation по `||U_n-U_{n-1}||_inf`; `0` отключает остановку.
 - `steady_solver.*` - параметры Newton-GMRES для steady workflow.
+- `linearization.*` - параметры матрично-свободной линеаризации и поиска eigenmodes.
+- `projected_run.*` - отдельные runtime-параметры projected-run и параметры вычитания forcing-проекции на выбранные eigenmodes.
 - `boundary.*` - выражения для граничных условий.
 - `forcing.fu`, `forcing.fv` - выражения правых частей на MAC-face сетках.
 
@@ -810,6 +838,182 @@ plots/steady/steady_iterate_change.png
 `state_internal.pkl` содержит exact MAC-state найденного steady state и является
 правильным файлом для последующей линеаризации.
 
+## Linearization workflow
+
+`make linearize` запускает `main.py --mode linearize`.
+
+Входной файл по умолчанию:
+
+```text
+plots/steady/state_internal.pkl
+```
+
+Его нужно получить перед этим через:
+
+```bash
+make steady
+```
+
+Линеаризация строится около найденного стационарного MAC-state:
+
+```text
+U = U0 + eps*v
+```
+
+где `U0 = [u0_vec, v0_vec, p0]`, а `v` - малое возмущение в том же MAC unknown
+ordering. Здесь используется чистый стационарный residual Навье-Стокса:
+
+```text
+R(U, p) = [
+  (u · grad)u - nu Laplace(u) + grad(p) - f,
+  div(u)
+]
+```
+
+Производные по времени в этом residual равны нулю. Для замыкания давления
+первая строка divergence residual заменяется gauge condition:
+
+```text
+p[0,0] = 0
+```
+
+Код не собирает полную матрицу. Он задает matvec для velocity-оператора:
+
+```text
+L = -P D_momentum R(U0)
+L v ~= P (-(R_momentum(U0 + eps*v) - R_momentum(U0)) / eps)
+eps = linearization.jacobian_rdiff * max(||U0||_inf, 1) / ||v||_inf
+```
+
+`P` - MAC pressure projection. Она решает sparse saddle-system `[I G; D 0]`,
+чтобы результат `L v` был divergence-free. Pressure не является динамической
+переменной eigenproblem; `p_modes` восстанавливаются из этого projection solve.
+Минус выбран в stability-sign convention: для возмущений можно читать
+линейную динамику как `v_t = L v`.
+
+Собственные пары ищутся через `scipy.sparse.linalg.eigs` / ARPACK. Параметр
+`linearization.which: LR` означает выбор eigenmodes с наибольшей вещественной
+частью `lambda` для этого стационарного линеаризованного оператора.
+
+После `make linearize` создается:
+
+```text
+plots/linearized/eigenpairs.pkl
+```
+
+Pickle содержит:
+
+```text
+operator
+state_path
+state_metadata
+base_residual_inf
+matvec_count
+arpack_converged
+arpack_message
+eigenvalues
+eigenvectors
+u_modes
+v_modes
+p_modes
+```
+
+`eigenvectors` хранит столбцы в порядке `[u_vec, v_vec, p]`. Для удобства те же
+моды сохранены как MAC-grid массивы:
+
+```text
+u_modes shape: (mode, nx-1, ny)
+v_modes shape: (mode, nx, ny-1)
+p_modes shape: (mode, nx, ny)
+```
+
+## Projected-Run workflow
+
+`make projected-run` запускает `main.py --mode projected-run`.
+
+Этот режим делает отдельный нестационарный прогон, но стартует не с нуля, а из:
+
+```text
+plots/steady/state_internal.pkl
+```
+
+Также он читает:
+
+```text
+plots/linearized/eigenpairs.pkl
+```
+
+Runtime-параметры у него свои, из блока `projected_run`:
+
+```text
+projected_run.t_end
+projected_run.n_steps
+projected_run.video_fps
+projected_run.video_speed
+projected_run.save_velocity_change_plot
+```
+
+Projected-run всегда отключает early stop по `convergence.tol` и идет до
+собственного `projected_run.t_end`.
+
+Алгоритм:
+
+1. Берется forcing vector в velocity ordering:
+
+   ```text
+   F = [fu, fv]
+   ```
+
+2. Из eigenpairs выбираются моды, для которых:
+
+   ```text
+   Re(lambda) > projected_run.real_threshold
+   ```
+
+   `lambda` берется из `plots/linearized/eigenpairs.pkl` и относится к
+   оператору `L = -P D_momentum R(U0)`, а не к map одного шага по времени.
+
+3. Из velocity-компонент комплексных eigenvectors строится вещественное
+   подпространство:
+
+   ```text
+   span(Re(q_k), Im(q_k))
+   ```
+
+   Pressure-компонента eigenvector в проекцию forcing не входит, потому что
+   правая часть `F = [fu, fv]` живет только в velocity-пространстве.
+
+4. Правая часть проектируется на это подпространство:
+
+   ```text
+   F_bad = Proj_unstable(F)
+   ```
+
+5. В simulation передается отфильтрованная правая часть:
+
+   ```text
+   F_filtered = F - F_bad
+   ```
+
+Для текущего forcing это делается на каждом batch. Если forcing зависит от `t`,
+проекция пересчитывается для текущего batch-force.
+
+После `make projected-run` создается:
+
+```text
+plots/projected_run/projection.pkl
+plots/projected_run/stokes_max_divergence.png
+plots/projected_run/stokes_velocity_change.png
+plots/projected_run/stokes_streamlines.mp4
+plots/projected_run/stokes_pressure.mp4
+plots/projected_run/stokes_vorticity.mp4
+plots/projected_run/final_state/state.pkl
+plots/projected_run/final_state/state_internal.pkl
+```
+
+`projection.pkl` содержит выбранные индексы мод, eigenvalues, rank вещественного
+базиса и нормы `force`, `removed`, `remaining`.
+
 ## Сходимость и диагностика
 
 В simulation:
@@ -879,6 +1083,8 @@ Newton-направления, и damping больше не может умен�
    make compile
    make run
    make steady
+   make linearize
+   make projected-run
    ```
 
 ## Как пересобрать функционально такой же проект с нуля
@@ -925,7 +1131,23 @@ Newton-направления, и damping больше не может умен�
     - SciPy GMRES;
     - Armijo line-search;
     - steady plots and pickle state.
-13. Добавить `Makefile`, `compile.sh`, `requirements.txt` и `README.md`.
+13. Написать linearization workflow:
+    - загрузка `plots/steady/state_internal.pkl`;
+    - сборка стационарного residual `R(U,p)` без производных по времени;
+    - matvec для `L=-P D_momentum R(U0)` через finite differences;
+    - `scipy.sparse.linalg.eigs`;
+    - pickle export eigenpairs в ordering `[u_vec, v_vec, p]`.
+14. Написать projected-run workflow:
+    - построение runtime-конфига из `projected_run.*`;
+    - отключение early stop по `convergence.tol`;
+    - загрузка `plots/steady/state_internal.pkl`;
+    - загрузка `plots/linearized/eigenpairs.pkl`;
+    - выбор eigenmodes по `Re(value) > threshold`;
+    - вещественная projection basis из `Re/Im` комплексных мод;
+    - вычитание `Proj(F)` из forcing;
+    - simulation стартует из `U0`.
+15. Добавить `Makefile`, `compile.sh`, `requirements.txt` и `README.md`.
 
 Если нужно сохранить текущую функциональность один-в-один, нельзя добавлять
-скрытые режимы в config и нельзя менять смысл `make run`/`make steady`.
+скрытые режимы в config и нельзя менять смысл `make run`, `make steady`,
+`make linearize`, `make projected-run`.

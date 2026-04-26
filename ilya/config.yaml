@@ -37,6 +37,32 @@ steady_solver:
   line_search: armijo
   min_step: 1.0e-3
 
+linearization:
+  # Linearize the steady Navier-Stokes residual around this exact MAC state.
+  # Run `make steady` before `make linearize`.
+  state_path: plots/steady/state_internal.pkl
+  n_eigs: 6
+  # LR returns modes with largest real part of L = -P D_momentum R(U0).
+  which: LR
+  tol: 1.0e-7
+  maxiter: 300
+  jacobian_rdiff: 1.0e-5
+
+projected_run:
+  # Runtime settings for `make projected-run`, independent from top-level time/output.
+  t_end: 10.0
+  n_steps: 100000
+  video_fps: 30
+  video_speed: 1
+  save_velocity_change_plot: true
+  # Starts simulation from this steady state.
+  state_path: plots/steady/state_internal.pkl
+  # Uses modes saved by `make linearize`.
+  eigenpairs_path: plots/linearized/eigenpairs.pkl
+  # Select genuinely growing modes; small positive cutoff skips numerical zero modes.
+  real_threshold: 1.0e-8
+  projection_rcond: 1.0e-12
+
 boundary:
   u_top: "0.0"
 

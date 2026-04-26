@@ -10,6 +10,17 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from simulation.linearized import (
+    resolve_linear_state_path,
+    save_linearized_eigenmodes,
+    solve_linearized_eigenmodes,
+)
+from simulation.projected_run import (
+    build_projected_run,
+    resolve_projected_eigenpairs_path,
+    resolve_projected_state_path,
+    save_projection_info,
+)
 from simulation.runner import run_simulation
 from simulation.steady import solve_steady
 from solver.config import SimConfig, Snapshot
@@ -103,6 +114,55 @@ def _print_steady_config(cfg: SimConfig) -> None:
             title="[bold]Steady Navier-Stokes (fixed-point Newton-GMRES)[/bold]",
             expand=False,
         )
+    )
+
+
+def _print_linearization_config(cfg: SimConfig) -> None:
+    state_path = resolve_linear_state_path(PROJECT_DIR, cfg)
+    nu_u = (cfg.nx - 1) * cfg.ny
+    nv_u = cfg.nx * (cfg.ny - 1)
+    np_u = cfg.nx * cfg.ny
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold cyan")
+    table.add_column(style="white")
+    table.add_row("State", str(state_path))
+    table.add_row(
+        "Unknowns",
+        f"{nu_u + nv_u + np_u:,}  (u:{nu_u}, v:{nv_u}, p:{np_u})",
+    )
+    table.add_row(
+        "Operator",
+        "L = -P D_momentum R(U0), pressure enforces div-free",
+    )
+    table.add_row("Eigenpairs", f"{cfg.linear_n_eigs}  ({cfg.linear_which})")
+    table.add_row("ARPACK", f"tol {cfg.linear_tol:.1e}, maxiter {cfg.linear_maxiter}")
+    table.add_row("Jacobian diff", f"{cfg.linear_jacobian_rdiff:.1e}")
+    console.print(
+        Panel(table, title="[bold]Linearized Navier-Stokes Eigenmodes[/bold]", expand=False)
+    )
+
+
+def _print_projected_run_config(cfg: SimConfig) -> None:
+    state_path = resolve_projected_state_path(PROJECT_DIR, cfg)
+    eigenpairs_path = resolve_projected_eigenpairs_path(PROJECT_DIR, cfg)
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold cyan")
+    table.add_column(style="white")
+    table.add_row("Start state", str(state_path))
+    table.add_row("Eigenpairs", str(eigenpairs_path))
+    table.add_row("Cutoff", f"Re(λ) > {cfg.projected_real_threshold}")
+    table.add_row("Projection rcond", f"{cfg.projected_projection_rcond:.1e}")
+    table.add_row("t_end", f"{cfg.t_end}")
+    table.add_row("dt", f"{cfg.dt:.2e}")
+    table.add_row("n_steps", f"{cfg.n_steps:,}")
+    table.add_row(
+        "early stop",
+        "disabled" if cfg.conv_tol == 0 else f"velocity_change < {cfg.conv_tol:.1e}",
+    )
+    console.print(
+        Panel(table, title="[bold]Projected-Forcing Simulation[/bold]", expand=False)
     )
 
 
@@ -205,6 +265,98 @@ def _run_simulation(cfg: SimConfig) -> None:
     console.print(Panel(table, title="[bold]Saved files[/bold]", expand=False))
 
 
+def _run_projected_run(cfg: SimConfig) -> None:
+    runtime_cfg = cfg.projected_runtime_config()
+    _print_projected_run_config(runtime_cfg)
+
+    lib_path = find_solver_lib(PROJECT_DIR)
+    out_dir = PROJECT_DIR / "plots" / "projected_run"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    xc, yc = _cell_centres(runtime_cfg)
+
+    initial_state, force_modifier, projection_info = build_projected_run(
+        runtime_cfg,
+        PROJECT_DIR,
+    )
+    projection_path = save_projection_info(projection_info, out_dir)
+    console.print(
+        "  selected modes: "
+        f"{len(projection_info.selected_indices)}   "
+        f"basis rank: {projection_info.basis_rank}   "
+        f"removed |force|: {projection_info.removed_norm:.3e} / {projection_info.force_norm:.3e}"
+    )
+
+    result = run_simulation(
+        runtime_cfg,
+        lib_path,
+        xc,
+        yc,
+        initial_state=initial_state,
+        force_modifier=force_modifier,
+        description="Projected run",
+    )
+    snapshots = result.snapshots
+    final_snapshot = snapshots[-1]
+    speed_levels, p_levels, omega_levels = compute_colour_levels(snapshots)
+
+    with console.status("[cyan]Saving projected-run plots…[/cyan]"):
+        divergence_path = save_divergence_plot(result.t_history, result.div_history, out_dir)
+        velocity_change_path: Path | None = None
+        if runtime_cfg.save_velocity_change_plot:
+            velocity_change_path = save_velocity_change_plot(
+                result.t_history,
+                result.velocity_change_history,
+                out_dir,
+            )
+
+        final_paths = save_final_figure(
+            final_snapshot,
+            runtime_cfg,
+            xc,
+            yc,
+            out_dir,
+            speed_levels,
+            p_levels,
+            omega_levels,
+            panel_subdir="final_state",
+        )
+        final_state_path = out_dir / "final_state" / "state.pkl"
+        final_internal_path = out_dir / "final_state" / "state_internal.pkl"
+        save_state_pickle(final_snapshot, xc, yc, final_state_path)
+        save_mac_state_pickle(
+            result.mac_states[-1],
+            runtime_cfg,
+            final_snapshot,
+            final_internal_path,
+        )
+
+    video_paths = render_videos(
+        snapshots,
+        runtime_cfg,
+        out_dir,
+        xc,
+        yc,
+        speed_levels,
+        p_levels,
+        omega_levels,
+    )
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold green")
+    table.add_column(style="dim")
+    table.add_row("✓ projection", str(projection_path))
+    table.add_row("✓ divergence", str(divergence_path))
+    if velocity_change_path is not None:
+        table.add_row("✓ velocity-change", str(velocity_change_path))
+    for path in final_paths:
+        table.add_row(f"✓ final/{path.name}", str(path))
+    table.add_row("✓ final/state.pkl", str(final_state_path))
+    table.add_row("✓ final/state_internal.pkl", str(final_internal_path))
+    for kind, path in video_paths.items():
+        table.add_row(f"✓ {kind}", str(path))
+    console.print(Panel(table, title="[bold]Saved files[/bold]", expand=False))
+
+
 def _run_steady(cfg: SimConfig) -> None:
     _print_steady_config(cfg)
 
@@ -257,11 +409,35 @@ def _run_steady(cfg: SimConfig) -> None:
     console.print(Panel(table, title="[bold]Saved files[/bold]", expand=False))
 
 
+def _run_linearize(cfg: SimConfig) -> None:
+    _print_linearization_config(cfg)
+
+    out_dir = PROJECT_DIR / "plots" / "linearized"
+    result = solve_linearized_eigenmodes(cfg, PROJECT_DIR)
+    eigen_path = save_linearized_eigenmodes(result, cfg, out_dir)
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold green")
+    table.add_column(style="white")
+    table.add_row("✓ eigenpairs", str(eigen_path))
+    table.add_row("base ||R(U0)||∞", f"{result.base_residual_inf:.2e}")
+    table.add_row("operator matvecs", f"{result.matvec_count}")
+    table.add_row("ARPACK", result.arpack_message)
+
+    for idx, value in enumerate(result.eigenvalues):
+        table.add_row(
+            f"λ{idx}",
+            f"{value.real:.6e} {value.imag:+.6e}i",
+        )
+
+    console.print(Panel(table, title="[bold]Saved files[/bold]", expand=False))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="2-D Navier-Stokes solver")
     parser.add_argument(
         "--mode",
-        choices=["simulation", "steady"],
+        choices=["simulation", "steady", "linearize", "projected-run"],
         default="simulation",
         help="Select which solver workflow to run",
     )
@@ -272,6 +448,10 @@ def main() -> None:
 
     if args.mode == "steady":
         _run_steady(cfg)
+    elif args.mode == "linearize":
+        _run_linearize(cfg)
+    elif args.mode == "projected-run":
+        _run_projected_run(cfg)
     else:
         _run_simulation(cfg)
 
