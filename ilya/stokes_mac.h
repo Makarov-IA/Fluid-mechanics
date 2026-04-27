@@ -105,6 +105,36 @@ public:
 
     [[nodiscard]] const Eigen::SparseMatrix<double>& system_matrix() const { return system_mat_; }
 
+    int solve_linearized_eigenmodes(int n_eigs,
+                                    const char* which,
+                                    const double* fu,
+                                    const double* fv,
+                                    double* eig_real,
+                                    double* eig_imag,
+                                    double* vec_real,
+                                    double* vec_imag,
+                                    double* base_residual_inf,
+                                    long long* matvec_count,
+                                    long long* dense_operator_bytes) const;
+
+    int solve_steady_newton(int max_newton_iters,
+                            double residual_tol,
+                            double krylov_tol,
+                            int krylov_maxiter,
+                            int krylov_restart,
+                            double jacobian_rdiff,
+                            const char* line_search,
+                            double min_step,
+                            const double* fu,
+                            const double* fv,
+                            int* newton_iters,
+                            double* residual_inf,
+                            double* max_div,
+                            int* converged,
+                            int* stop_code,
+                            double* iterate_change_inf,
+                            int* iterate_change_count);
+
 private:
     // -----------------------------------------------------------------------
     // Physical and grid parameters
@@ -201,6 +231,8 @@ private:
     // Ghost-node extensions of u and v across solid walls (for advection).
     double u_ghost(const std::vector<double>& u, int i, int j) const;
     double v_ghost(const std::vector<double>& v, int i, int j) const;
+    double u_ghost_zero_bc(const std::vector<double>& u, int i, int j) const;
+    double v_ghost_zero_bc(const std::vector<double>& v, int i, int j) const;
 
     // Compute explicit convective terms; results written into adv_u_, adv_v_.
     void compute_advection(const std::vector<double>& u,
@@ -211,6 +243,14 @@ private:
 
     // Return max|div u| over all non-gauge pressure cells.
     double max_divergence() const;
+    double steady_residual_inf(const double* fu, const double* fv) const;
+    Eigen::SparseMatrix<double> build_projection_matrix() const;
+    Eigen::VectorXd project_velocity_rhs(
+        const Eigen::SparseLU<Eigen::SparseMatrix<double>>& solver,
+        const Eigen::VectorXd& raw,
+        Eigen::VectorXd* pressure
+    ) const;
+    Eigen::VectorXd linearized_raw_velocity_action(const Eigen::VectorXd& velocity) const;
 
     double last_velocity_change_ = 0.0;
 };
@@ -267,4 +307,35 @@ extern "C" {
     const double* stokes_mac_get_p_c   (void* handle);
     const double* stokes_mac_get_u_c   (void* handle);
     const double* stokes_mac_get_v_c   (void* handle);
+
+    int stokes_mac_linearized_eig_c(void* handle,
+                                    int n_eigs,
+                                    const char* which,
+                                    const double* fu,
+                                    const double* fv,
+                                    double* eig_real,
+                                    double* eig_imag,
+                                    double* vec_real,
+                                    double* vec_imag,
+                                    double* base_residual_inf,
+                                    long long* matvec_count,
+                                    long long* dense_operator_bytes);
+    int stokes_mac_solve_steady_c(void* handle,
+                                  int max_newton_iters,
+                                  double residual_tol,
+                                  double krylov_tol,
+                                  int krylov_maxiter,
+                                  int krylov_restart,
+                                  double jacobian_rdiff,
+                                  const char* line_search,
+                                  double min_step,
+                                  const double* fu,
+                                  const double* fv,
+                                  int* newton_iters,
+                                  double* residual_inf,
+                                  double* max_div,
+                                  int* converged,
+                                  int* stop_code,
+                                  double* iterate_change_inf,
+                                  int* iterate_change_count);
 }

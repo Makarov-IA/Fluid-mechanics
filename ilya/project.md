@@ -4,9 +4,8 @@
 
 Проект решает двумерные несжимаемые уравнения Навье-Стокса на равномерной
 staggered MAC-сетке. Основная цель текущей версии - запуск нестационарной
-симуляции, сохранение графиков/видео и поиск стационарного состояния методом
-Newton-GMRES из начального приближения, взятого из симуляции в заданный момент
-времени.
+симуляции, сохранение графиков/видео, поиск стационарного состояния методом
+Newton-GMRES и линеаризация около найденного стационара.
 
 В текущем проекте есть четыре пользовательских сценария:
 
@@ -54,8 +53,10 @@ ilya/
     config.py             - SimConfig, Snapshot, выражения, BC/force arrays
     lib.py                - ctypes wrapper над solver.{dylib,so,dll}
   simulation/
-    runner.py             - нестационарная симуляция
-    steady.py             - fixed-point Newton-GMRES
+    runner.py             - Python-обертка нестационарной симуляции
+    steady.py             - Python-обертка C++ fixed-point Newton-GMRES
+    linearized.py         - Python-обертка C++ dense linearization/eig
+    projected_run.py      - подготовка projected-run forcing
   viz/
     levels.py             - общие color levels
     plots.py              - PNG/pickle графики и панели состояния
@@ -91,6 +92,9 @@ C++:
 - Eigen headers из `../External_libs`;
 - OpenMP опционален.
 
+SciPy не участвует в основных численных solve/eig этапах; он остается только
+для вспомогательной визуализации в `viz/plots.py`.
+
 `compile.sh` выбирает расширение shared library по ОС. На macOS используется
 `clang++`; OpenMP включается только если найден Homebrew `libomp`. На Linux и
 Windows передается `-fopenmp`.
@@ -112,6 +116,21 @@ make clean
 `make clean-plots` удаляет `plots`. `make clean-lib` удаляет собранную shared
 library. Эти команды не трогают исходники.
 
+## Поддерживаемые постановки задач
+
+1. **Задача о кювете / cavity-flow.** Задается геометрия, вязкость и граничные
+   скорости в `boundary.*`; правая часть может быть нулевой. `make run` строит
+   нестационарную траекторию, графики, видео и snapshot в заданный момент.
+2. **Задача с произвольными правыми частями.** `forcing.fu` и `forcing.fv`
+   задаются строковыми выражениями от `x`, `y`, `t` и вычисляются на MAC-face
+   сетках через NumPy. Для `steady` и `linearize` forcing должен быть
+   time-independent.
+3. **Поиск нестационарных мод около стационара.** `make steady` ищет
+   стационарное состояние, `make linearize` применяет оператор
+   `L=-P D_momentum R(U0)` и находит его собственные моды через
+   C++ dense eig на малых сетках или C++ Arnoldi на больших; `make projected-run` может стартовать из стационара и
+   убрать из forcing компоненты по выбранным растущим модам.
+
 ## Конфигурация
 
 Все runtime-параметры читаются из `config.yaml` через `SimConfig.from_yaml`.
@@ -130,18 +149,14 @@ grid:
 physics:
   nu: 0.00384615384
 
-time:
+run:
   t_end: 10.0
   n_steps: 100000
-
-output:
   video_fps: 30
   video_speed: 1
   save_velocity_change_plot: true
   fixed_time_state_t: 2.2
-
-convergence:
-  tol: 1.0e-6
+  convergence_tol: 1.0e-6
 
 steady_solver:
   max_newton_iters: 12
@@ -157,14 +172,11 @@ linearization:
   state_path: plots/steady/state_internal.pkl
   n_eigs: 6
   which: LR
-  tol: 1.0e-7
-  maxiter: 300
-  jacobian_rdiff: 1.0e-5
 
 projected_run:
-  t_end: 10.0
+  t_end: 20.0
   n_steps: 100000
-  video_fps: 30
+  video_fps: 10
   video_speed: 1
   save_velocity_change_plot: true
   state_path: plots/steady/state_internal.pkl
@@ -185,15 +197,15 @@ forcing:
 - `domain.lx`, `domain.ly` - размеры прямоугольной области.
 - `grid.nx`, `grid.ny` - число pressure-cells по `x` и `y`; оба значения должны быть больше 1.
 - `physics.nu` - кинематическая вязкость, строго положительная.
-- `time.t_end` - конечное время симуляции.
-- `time.n_steps` - число внутренних шагов по времени.
-- `output.video_fps` - FPS итогового видео.
-- `output.video_speed` - во сколько раз ускорять физическое время на видео.
-- `output.save_velocity_change_plot` - включает сохранение `plots/stokes_velocity_change.png`.
-- `output.fixed_time_state_t` - время, ближайший snapshot к которому сохраняется в `plots/fixed_time_state/*.pkl`.
-- `convergence.tol` - досрочная остановка simulation по `||U_n-U_{n-1}||_inf`; `0` отключает остановку.
+- `run.t_end` - конечное время обычного `make run`.
+- `run.n_steps` - число внутренних шагов по времени для обычного `make run`.
+- `run.video_fps` - FPS итогового видео обычного `make run`.
+- `run.video_speed` - во сколько раз ускорять физическое время на видео.
+- `run.save_velocity_change_plot` - включает сохранение `plots/run/stokes_velocity_change.png`.
+- `run.fixed_time_state_t` - время, ближайший snapshot к которому сохраняется в `plots/run/fixed_time_state/*.pkl`.
+- `run.convergence_tol` - досрочная остановка simulation по `||U_n-U_{n-1}||_inf`; `0` отключает остановку.
 - `steady_solver.*` - параметры Newton-GMRES для steady workflow.
-- `linearization.*` - параметры матрично-свободной линеаризации и поиска eigenmodes.
+- `linearization.*` - параметры линеаризации и выбора eigenmodes.
 - `projected_run.*` - отдельные runtime-параметры projected-run и параметры вычитания forcing-проекции на выбранные eigenmodes.
 - `boundary.*` - выражения для граничных условий.
 - `forcing.fu`, `forcing.fv` - выражения правых частей на MAC-face сетках.
@@ -493,7 +505,7 @@ Python wrapper не реализует численную схему. Он то�
 3. Находит compiled solver library.
 4. Вызывает `run_simulation`.
 5. Находит final snapshot.
-6. Находит snapshot, ближайший к `output.fixed_time_state_t`.
+6. Находит snapshot, ближайший к `run.fixed_time_state_t`.
 7. Считает общие color levels по всем snapshots.
 8. Сохраняет static plots и pickle-состояния.
 9. Рендерит MP4 videos.
@@ -513,7 +525,7 @@ Python wrapper не реализует численную схему. Он то�
    - считает vorticity;
    - сохраняет один `Snapshot`;
    - сохраняет exact `MacState` с внутренними `u_vec`, `v_vec`, `p`.
-5. Если последний `velocity_change < convergence.tol`, simulation останавливается досрочно.
+5. Если последний `velocity_change < run.convergence_tol`, simulation останавливается досрочно.
 
 Cell-centered velocity:
 
@@ -551,28 +563,28 @@ p: np.ndarray      # shape (nx*ny,), float64
 
 ## Simulation outputs
 
-После `make run` создается `plots/`.
+После `make run` создается отдельная папка `plots/run/`.
 
 Основные файлы:
 
 ```text
-plots/stokes_max_divergence.png
-plots/stokes_velocity_change.png          # только если save_velocity_change_plot: true
-plots/stokes_streamlines.mp4
-plots/stokes_pressure.mp4
-plots/stokes_vorticity.mp4
-plots/final_state/streamlines.png
-plots/final_state/pressure.png
-plots/final_state/vorticity.png
-plots/final_state/state.pkl
-plots/fixed_time_state/streamlines.png
-plots/fixed_time_state/pressure.png
-plots/fixed_time_state/vorticity.png
-plots/fixed_time_state/state.pkl
-plots/fixed_time_state/state_internal.pkl
+plots/run/stokes_max_divergence.png
+plots/run/stokes_velocity_change.png          # только если save_velocity_change_plot: true
+plots/run/stokes_streamlines.mp4
+plots/run/stokes_pressure.mp4
+plots/run/stokes_vorticity.mp4
+plots/run/final_state/streamlines.png
+plots/run/final_state/pressure.png
+plots/run/final_state/vorticity.png
+plots/run/final_state/state.pkl
+plots/run/fixed_time_state/streamlines.png
+plots/run/fixed_time_state/pressure.png
+plots/run/fixed_time_state/vorticity.png
+plots/run/fixed_time_state/state.pkl
+plots/run/fixed_time_state/state_internal.pkl
 ```
 
-`plots/fixed_time_state/state_internal.pkl` - единственный файл, который steady
+`plots/run/fixed_time_state/state_internal.pkl` - единственный файл, который steady
 workflow использует как начальное приближение.
 
 `state.pkl` - pickle-словарь для просмотра/анализа cell-centered состояния:
@@ -607,9 +619,9 @@ p: np.ndarray, shape (nx*ny,)
 
 `stokes_velocity_change.png`:
 
-- включается ключом `output.save_velocity_change_plot`;
+- включается ключом `run.save_velocity_change_plot`;
 - строится по всем внутренним solver steps без downsampling;
-- величина: `||U_n-U_{n-1}||_inf`;
+- величина: `||U_n-U_{n-1}||_inf / Δt`;
 - шкала `y` логарифмическая;
 - шаг major ticks по `x` равен `0.1` секунды;
 - подписи `x` повернуты на 90 градусов;
@@ -659,7 +671,7 @@ stokes_vorticity.mp4
 Параметры writer:
 
 ```text
-fps = config.output.video_fps
+fps = cfg.video_fps
 codec = libx264
 crf = 20
 macro_block_size = 1
@@ -716,7 +728,7 @@ boundary.v_top
 Текущая версия поддерживает ровно один источник:
 
 ```text
-plots/fixed_time_state/state_internal.pkl
+plots/run/fixed_time_state/state_internal.pkl
 ```
 
 Если файла нет, нужно сначала выполнить:
@@ -766,7 +778,8 @@ p: pressure cells in C++ storage ordering
 
 ### Newton-GMRES
 
-`solve_steady` использует damped Newton:
+`solve_steady` в Python только загружает начальное приближение и вызывает C++
+backend. Внутри C++ используется damped Newton:
 
 ```text
 DG(U_k) delta_k = -G(U_k)
@@ -792,19 +805,17 @@ DG(U) v ~= (G(U + eps*v) - G(U)) / eps
 eps = jacobian_rdiff * max(||U||_inf, 1) / ||v||_inf
 ```
 
-Линейная система решается `scipy.sparse.linalg.gmres`:
+Линейная система решается C++ restarted GMRES:
 
 ```text
-atol = 0
-rtol = steady_solver.krylov_tol
+relative tolerance = steady_solver.krylov_tol
 restart = min(steady_solver.krylov_restart, state_size)
-maxiter = steady_solver.krylov_maxiter
-callback_type = "pr_norm"
+max Arnoldi iterations = steady_solver.krylov_maxiter
 ```
 
-`gmres_info == 0` означает успешную сходимость GMRES. Положительный
-`gmres_info` означает, что GMRES не достиг `rtol` за заданное число итераций,
-но код все равно пробует использовать найденный `delta`.
+Если GMRES не достигает tolerance за заданное число итераций, C++ все равно
+пробует использовать текущую найденную поправку `delta`, как и старая Python
+реализация.
 
 Line search:
 
@@ -854,14 +865,9 @@ plots/steady/state_internal.pkl
 make steady
 ```
 
-Линеаризация строится около найденного стационарного MAC-state:
-
-```text
-U = U0 + eps*v
-```
-
-где `U0 = [u0_vec, v0_vec, p0]`, а `v` - малое возмущение в том же MAC unknown
-ordering. Здесь используется чистый стационарный residual Навье-Стокса:
+Линеаризация строится около найденного стационарного MAC-state
+`U0 = [u0_vec, v0_vec, p0]`. Здесь используется чистый стационарный residual
+Навье-Стокса:
 
 ```text
 R(U, p) = [
@@ -877,23 +883,48 @@ R(U, p) = [
 p[0,0] = 0
 ```
 
-Код не собирает полную матрицу. Он задает matvec для velocity-оператора:
+Код аналитически линеаризует momentum residual по velocity-возмущению
+`w = (a,b)`:
 
 ```text
-L = -P D_momentum R(U0)
-L v ~= P (-(R_momentum(U0 + eps*v) - R_momentum(U0)) / eps)
-eps = linearization.jacobian_rdiff * max(||U0||_inf, 1) / ||v||_inf
+δR_u =
+  u0 ∂a/∂x + v0 ∂a/∂y
++ a  ∂u0/∂x + b  ∂u0/∂y
+- nu Δa
+
+δR_v =
+  u0 ∂b/∂x + v0 ∂b/∂y
++ a  ∂v0/∂x + b  ∂v0/∂y
+- nu Δb
+```
+
+После этого строится velocity-оператор:
+
+```text
+L w = P (-δR_momentum)
 ```
 
 `P` - MAC pressure projection. Она решает sparse saddle-system `[I G; D 0]`,
-чтобы результат `L v` был divergence-free. Pressure не является динамической
+чтобы результат `L w` был divergence-free. Pressure не является динамической
 переменной eigenproblem; `p_modes` восстанавливаются из этого projection solve.
 Минус выбран в stability-sign convention: для возмущений можно читать
 линейную динамику как `v_t = L v`.
 
-Собственные пары ищутся через `scipy.sparse.linalg.eigs` / ARPACK. Параметр
-`linearization.which: LR` означает выбор eigenmodes с наибольшей вещественной
-частью `lambda` для этого стационарного линеаризованного оператора.
+Для поиска собственных пар C++ выбирает backend по размеру задачи.
+
+На малых velocity-пространствах явно собирается dense-матрица `L`: оператор
+применяется ко всем базисным векторам velocity-пространства, затем вызывается
+`Eigen::EigenSolver`, то есть полный dense eigen solve внутри C++ backend.
+
+На больших velocity-пространствах dense-матрица не собирается. Вместо этого
+запускается matrix-free Arnoldi: C++ хранит только Krylov basis и малую
+Hessenberg-матрицу, а `Eigen::EigenSolver` вызывается уже для этой малой
+матрицы. Для текущей сетки `105x105` размер velocity-пространства равен
+`21840`, поэтому используется Arnoldi, а не full dense eig.
+
+Параметр `linearization.which: LR` используется после вычисления спектра
+dense-оператора или Ritz-спектра Arnoldi, чтобы выбрать `n_eigs` modes с
+наибольшей вещественной частью `lambda`.
 
 После `make linearize` создается:
 
@@ -909,8 +940,8 @@ state_path
 state_metadata
 base_residual_inf
 matvec_count
-arpack_converged
-arpack_message
+dense_operator_bytes
+eig_message
 eigenvalues
 eigenvectors
 u_modes
@@ -953,7 +984,7 @@ projected_run.video_speed
 projected_run.save_velocity_change_plot
 ```
 
-Projected-run всегда отключает early stop по `convergence.tol` и идет до
+Projected-run всегда отключает early stop по `run.convergence_tol` и идет до
 собственного `projected_run.t_end`.
 
 Алгоритм:
@@ -1020,10 +1051,12 @@ plots/projected_run/final_state/state_internal.pkl
 
 ```text
 velocity_change = ||U_n - U_{n-1}||_inf
+velocity_change_rate = velocity_change / Δt
 ```
 
-Это разность между соседними внутренними time steps. Малое значение на графике
-`stokes_velocity_change` не гарантирует, что Newton в steady сойдется. Причины:
+В истории хранится разность между соседними внутренними time steps, а график
+`stokes_velocity_change` показывает `velocity_change_rate`. Малое значение на
+этом графике не гарантирует, что Newton в steady сойдется. Причины:
 
 - величина зависит от `dt`; при маленьком `dt` соседние слои могут быть близки;
 - локальный провал на графике может быть поворотом/медленным участком траектории, а не стационарным состоянием;
@@ -1073,11 +1106,14 @@ Newton-направления, и damping больше не может умен�
 4. Time-dependent forcing в simulation обновляется по batch, а не по каждому
    внутреннему step.
 
-5. `stokes_velocity_change.png` показывает абсолютное изменение за шаг, не
-   производную по времени. Для сравнения расчетов с разным `dt` нужно смотреть
-   также `velocity_change / dt`.
+5. Dense eig в `make linearize` хранит явную матрицу размера
+   `N_velocity × N_velocity`, то есть минимум `8*N_velocity^2` байт только под
+   оператор до рабочих массивов eig. На сетке 105×105 это уже несколько GiB.
 
-6. Проект не содержит автоматических tests. Минимальная проверка после изменений:
+6. `stokes_velocity_change.png` показывает уже нормированную по времени величину
+   `||U_n-U_{n-1}||_inf / Δt`, а не абсолютное изменение за шаг.
+
+7. Проект не содержит автоматических tests. Минимальная проверка после изменений:
 
    ```bash
    make compile
@@ -1116,7 +1152,7 @@ Newton-направления, и damping больше не может умен�
     - batch loop;
     - per-step histories;
     - per-batch snapshots;
-    - early stop по `convergence.tol`.
+    - early stop по `run.convergence_tol`.
 11. Написать visualization:
     - divergence plot;
     - optional velocity-change plot;
@@ -1124,22 +1160,25 @@ Newton-направления, и damping больше не может умен�
     - pickle export;
     - parallel video rendering.
 12. Написать steady workflow:
-    - загрузка `plots/fixed_time_state/state_internal.pkl`;
+    - загрузка `plots/run/fixed_time_state/state_internal.pkl`;
     - проверка grid metadata и длин внутренних массивов;
-    - `G(U)=Phi(U)-U`;
-    - finite-difference JVP;
-    - SciPy GMRES;
-    - Armijo line-search;
+    - вызов C++ backend для `G(U)=Phi(U)-U`;
+    - C++ finite-difference JVP;
+    - C++ restarted GMRES;
+    - C++ Armijo line-search;
     - steady plots and pickle state.
 13. Написать linearization workflow:
     - загрузка `plots/steady/state_internal.pkl`;
-    - сборка стационарного residual `R(U,p)` без производных по времени;
-    - matvec для `L=-P D_momentum R(U0)` через finite differences;
-    - `scipy.sparse.linalg.eigs`;
+    - передача state в C++ backend;
+    - C++ сборка стационарного residual `R(U,p)` без производных по времени;
+    - C++ аналитическая линеаризация momentum residual;
+    - C++ exact dense eig на малых системах;
+    - C++ matrix-free Arnoldi на больших системах;
+    - C++ `Eigen::EigenSolver` для dense matrix или малой Hessenberg matrix;
     - pickle export eigenpairs в ordering `[u_vec, v_vec, p]`.
 14. Написать projected-run workflow:
     - построение runtime-конфига из `projected_run.*`;
-    - отключение early stop по `convergence.tol`;
+    - отключение early stop по `run.convergence_tol`;
     - загрузка `plots/steady/state_internal.pkl`;
     - загрузка `plots/linearized/eigenpairs.pkl`;
     - выбор eigenmodes по `Re(value) > threshold`;

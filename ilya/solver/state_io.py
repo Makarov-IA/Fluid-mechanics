@@ -12,26 +12,6 @@ from solver.config import MacState, SimConfig
 _REQUIRED_MAC_KEYS = ("nx", "ny", "lx", "ly", "nu", "dt", "u_vec", "v_vec", "p")
 
 
-def velocity_state_size(cfg: SimConfig) -> int:
-    """Return the length of the nonlinear velocity state [u_vec, v_vec]."""
-    return (cfg.nx - 1) * cfg.ny + cfg.nx * (cfg.ny - 1)
-
-
-def join_velocity_state(mac_state: MacState) -> np.ndarray:
-    """Concatenate exact MAC velocity unknowns into one vector."""
-    return np.concatenate([mac_state.u_vec, mac_state.v_vec])
-
-
-def join_full_state(mac_state: MacState) -> np.ndarray:
-    """Concatenate exact MAC unknowns into [u_vec, v_vec, p]."""
-    return np.concatenate([mac_state.u_vec, mac_state.v_vec, mac_state.p])
-
-
-def split_velocity_state(state: np.ndarray, nu_u: int) -> tuple[np.ndarray, np.ndarray]:
-    """Split [u_vec, v_vec] into its MAC velocity blocks."""
-    return state[:nu_u], state[nu_u:]
-
-
 def split_full_state(
     state: np.ndarray,
     nu_u: int,
@@ -99,22 +79,6 @@ def load_mac_state_pickle(
         if key in data
     }
     return MacState(u_vec=u_vec, v_vec=v_vec, p=p_vec), metadata
-
-
-def velocity_mode_grids(
-    cfg: SimConfig,
-    eigenvectors: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Convert eigenvector columns into complex MAC u/v face-grid blocks."""
-    nu_u = (cfg.nx - 1) * cfg.ny
-    modes_u = []
-    modes_v = []
-    for mode_idx in range(eigenvectors.shape[1]):
-        vec = eigenvectors[:, mode_idx]
-        u_vec, v_vec = split_velocity_state(vec, nu_u)
-        modes_u.append(u_vec.reshape(cfg.ny, cfg.nx - 1).T)
-        modes_v.append(v_vec.reshape(cfg.ny - 1, cfg.nx).T)
-    return np.asarray(modes_u), np.asarray(modes_v)
 
 
 def full_mode_grids(

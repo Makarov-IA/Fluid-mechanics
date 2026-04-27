@@ -241,7 +241,7 @@ def save_velocity_change_plot(
     change_history: list[float],
     out_dir: Path,
 ) -> Path:
-    """Save ||U_n - U_{n-1}||_inf versus solver time."""
+    """Save the time-scaled velocity change ||U_n - U_{n-1}||_inf / Δt."""
     path = out_dir / "stokes_velocity_change.png"
     t_plot = np.asarray(t_history, dtype=np.float64)
     change_plot = np.asarray(change_history, dtype=np.float64)
@@ -251,9 +251,15 @@ def save_velocity_change_plot(
 
     fig, ax = plt.subplots(figsize=(width_in, 4.5))
     if len(change_plot) > 0:
+        step_dt = np.diff(np.concatenate(([0.0], t_plot)))
+        if np.any(step_dt <= 0.0):
+            positive_dt = step_dt[step_dt > 0.0]
+            fallback_dt = float(np.median(positive_dt)) if len(positive_dt) else 1.0
+            step_dt = np.where(step_dt > 0.0, step_dt, fallback_dt)
+        change_rate = change_plot / step_dt
         ax.semilogy(
             t_plot,
-            np.maximum(change_plot, 1e-30),
+            np.maximum(change_rate, 1e-30),
             color="#ad1457",
             linewidth=1.2,
         )
@@ -269,9 +275,9 @@ def save_velocity_change_plot(
         )
         ax.set_xlim(0.0, 1.0)
         ax.set_ylim(0.0, 1.0)
-    ax.set_title(r"Velocity Step Change vs Time  $\|U_n-U_{n-1}\|_\infty$")
+    ax.set_title(r"Velocity Change Rate vs Time  $\|U_n-U_{n-1}\|_\infty / \Delta t$")
     ax.set_xlabel("t")
-    ax.set_ylabel(r"$\|U_n-U_{n-1}\|_\infty$")
+    ax.set_ylabel(r"$\|U_n-U_{n-1}\|_\infty / \Delta t$")
     ax.xaxis.set_major_locator(MultipleLocator(0.1))
     ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
     ax.tick_params(axis="x", labelrotation=90, labelsize=8)

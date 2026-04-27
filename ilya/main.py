@@ -81,7 +81,7 @@ def _print_simulation_config(cfg: SimConfig) -> None:
 
 
 def _print_steady_config(cfg: SimConfig) -> None:
-    guess_path = PROJECT_DIR / "plots" / "fixed_time_state" / "state_internal.pkl"
+    guess_path = PROJECT_DIR / "plots" / "run" / "fixed_time_state" / "state_internal.pkl"
     nu_u = (cfg.nx - 1) * cfg.ny
     nv_u = cfg.nx * (cfg.ny - 1)
     np_u = cfg.nx * cfg.ny
@@ -133,11 +133,10 @@ def _print_linearization_config(cfg: SimConfig) -> None:
     )
     table.add_row(
         "Operator",
-        "L = -P D_momentum R(U0), pressure enforces div-free",
+        "dense L = -P D_momentum R(U0), analytic linearization",
     )
     table.add_row("Eigenpairs", f"{cfg.linear_n_eigs}  ({cfg.linear_which})")
-    table.add_row("ARPACK", f"tol {cfg.linear_tol:.1e}, maxiter {cfg.linear_maxiter}")
-    table.add_row("Jacobian diff", f"{cfg.linear_jacobian_rdiff:.1e}")
+    table.add_row("Eigen solver", "C++ dense eig / Arnoldi")
     console.print(
         Panel(table, title="[bold]Linearized Navier-Stokes Eigenmodes[/bold]", expand=False)
     )
@@ -172,7 +171,7 @@ def _run_simulation(cfg: SimConfig) -> None:
     lib_path = find_solver_lib(PROJECT_DIR)
     console.print(f"  Library: [dim]{lib_path.name}[/dim]")
 
-    out_dir = PROJECT_DIR / "plots"
+    out_dir = PROJECT_DIR / "plots" / "run"
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(cfg)
 
@@ -422,7 +421,8 @@ def _run_linearize(cfg: SimConfig) -> None:
     table.add_row("✓ eigenpairs", str(eigen_path))
     table.add_row("base ||R(U0)||∞", f"{result.base_residual_inf:.2e}")
     table.add_row("operator matvecs", f"{result.matvec_count}")
-    table.add_row("ARPACK", result.arpack_message)
+    table.add_row("operator storage", f"{result.dense_operator_bytes / 1024**3:.2f} GiB")
+    table.add_row("eig", result.eig_message)
 
     for idx, value in enumerate(result.eigenvalues):
         table.add_row(

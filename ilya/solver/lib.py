@@ -8,6 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
+DoublePtr = ct.POINTER(ct.c_double)
+
 
 def find_solver_lib(directory: Path) -> Path:
     """Return the platform-specific shared library path."""
@@ -78,22 +80,20 @@ class StokesMACLib:
 
     def set_bc_arrays(self, bcs: dict[str, np.ndarray]) -> None:
         """Push boundary-condition arrays to the C++ solver."""
-
-        def _ptr(arr: np.ndarray) -> ct.POINTER(ct.c_double):
-            return arr.astype(np.float64, copy=False).ctypes.data_as(
-                ct.POINTER(ct.c_double)
-            )
-
+        arrays = [
+            self._double_array(bcs["u_top"]),
+            self._double_array(bcs["u_bot"]),
+            self._double_array(bcs["v_left"]),
+            self._double_array(bcs["v_right"]),
+            self._double_array(bcs["u_left"]),
+            self._double_array(bcs["u_right"]),
+            self._double_array(bcs["v_bot"]),
+            self._double_array(bcs["v_top"]),
+        ]
+        ptrs = [self._double_ptr(arr) for arr in arrays]
         self._dll.stokes_mac_set_bc_c(
             self._handle,
-            _ptr(bcs["u_top"]),
-            _ptr(bcs["u_bot"]),
-            _ptr(bcs["v_left"]),
-            _ptr(bcs["v_right"]),
-            _ptr(bcs["u_left"]),
-            _ptr(bcs["u_right"]),
-            _ptr(bcs["v_bot"]),
-            _ptr(bcs["v_top"]),
+            *ptrs,
         )
 
     def run_steps(self, t_start: float, n_steps: int) -> np.ndarray:
@@ -103,7 +103,7 @@ class StokesMACLib:
             self._handle,
             ct.c_double(t_start),
             ct.c_int(n_steps),
-            div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+            self._double_ptr(div_out),
         )
         return div_out
 
@@ -119,8 +119,8 @@ class StokesMACLib:
             self._handle,
             ct.c_double(t_start),
             ct.c_int(n_steps),
-            div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
-            change_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+            self._double_ptr(div_out),
+            self._double_ptr(change_out),
         )
         return div_out, change_out
 
@@ -133,19 +133,15 @@ class StokesMACLib:
     ) -> np.ndarray:
         """Run n_steps with constant pre-evaluated force arrays."""
         div_out = np.empty(n_steps, dtype=np.float64)
-
-        def _ptr_or_null(arr: np.ndarray | None) -> ct.POINTER(ct.c_double):
-            if arr is None:
-                return ct.cast(None, ct.POINTER(ct.c_double))
-            return arr.ctypes.data_as(ct.POINTER(ct.c_double))
+        fu_arr, fv_arr = self._force_arrays(fu, fv)
 
         self._dll.stokes_mac_run_steps_with_force_c(
             self._handle,
             ct.c_double(t_start),
             ct.c_int(n_steps),
-            _ptr_or_null(fu),
-            _ptr_or_null(fv),
-            div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+            self._maybe_double_ptr(fu_arr),
+            self._maybe_double_ptr(fv_arr),
+            self._double_ptr(div_out),
         )
         return div_out
 
@@ -159,20 +155,16 @@ class StokesMACLib:
         """Run n_steps with constant force arrays and return (div, ||ΔU||∞) per step."""
         div_out = np.empty(n_steps, dtype=np.float64)
         change_out = np.empty(n_steps, dtype=np.float64)
-
-        def _ptr_or_null(arr: np.ndarray | None) -> ct.POINTER(ct.c_double):
-            if arr is None:
-                return ct.cast(None, ct.POINTER(ct.c_double))
-            return arr.ctypes.data_as(ct.POINTER(ct.c_double))
+        fu_arr, fv_arr = self._force_arrays(fu, fv)
 
         self._dll.stokes_mac_run_steps_with_force_diagnostics_c(
             self._handle,
             ct.c_double(t_start),
             ct.c_int(n_steps),
-            _ptr_or_null(fu),
-            _ptr_or_null(fv),
-            div_out.ctypes.data_as(ct.POINTER(ct.c_double)),
-            change_out.ctypes.data_as(ct.POINTER(ct.c_double)),
+            self._maybe_double_ptr(fu_arr),
+            self._maybe_double_ptr(fv_arr),
+            self._double_ptr(div_out),
+            self._double_ptr(change_out),
         )
         return div_out, change_out
 
@@ -196,26 +188,25 @@ class StokesMACLib:
         p_vec: np.ndarray | None = None,
     ) -> None:
         """Overwrite the current solver state from interior unknown arrays."""
-        u_arr = np.ascontiguousarray(u_vec, dtype=np.float64)
-        v_arr = np.ascontiguousarray(v_vec, dtype=np.float64)
+        u_arr = self._double_array(u_vec)
+        v_arr = self._double_array(v_vec)
         if u_arr.shape != (self._nu,):
             raise ValueError(f"u_vec must have shape {(self._nu,)}, got {u_arr.shape}")
         if v_arr.shape != (self._nv,):
             raise ValueError(f"v_vec must have shape {(self._nv,)}, got {v_arr.shape}")
 
-        double_ptr = ct.POINTER(ct.c_double)
         if p_vec is not None:
-            p_arr = np.ascontiguousarray(p_vec, dtype=np.float64)
+            p_arr = self._double_array(p_vec)
             if p_arr.shape != (self._np,):
                 raise ValueError(f"p_vec must have shape {(self._np,)}, got {p_arr.shape}")
-            p_ptr = p_arr.ctypes.data_as(double_ptr)
+            p_ptr = self._double_ptr(p_arr)
         else:
-            p_ptr = ct.cast(None, double_ptr)
+            p_ptr = self._maybe_double_ptr(None)
 
         self._dll.stokes_mac_set_state_c(
             self._handle,
-            u_arr.ctypes.data_as(double_ptr),
-            v_arr.ctypes.data_as(double_ptr),
+            self._double_ptr(u_arr),
+            self._double_ptr(v_arr),
             p_ptr,
         )
 
@@ -224,14 +215,114 @@ class StokesMACLib:
         u_arr = np.empty(self._nu, dtype=np.float64)
         v_arr = np.empty(self._nv, dtype=np.float64)
         p_arr = np.empty(self._np, dtype=np.float64)
-        double_ptr = ct.POINTER(ct.c_double)
         self._dll.stokes_mac_get_state_c(
             self._handle,
-            u_arr.ctypes.data_as(double_ptr),
-            v_arr.ctypes.data_as(double_ptr),
-            p_arr.ctypes.data_as(double_ptr),
+            self._double_ptr(u_arr),
+            self._double_ptr(v_arr),
+            self._double_ptr(p_arr),
         )
         return u_arr, v_arr, p_arr
+
+    def solve_linearized_eig(
+        self,
+        n_eigs: int,
+        which: str,
+        fu: np.ndarray | None,
+        fv: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray, float, int, int]:
+        """Run C++ dense linearization and Eigen eigensolver."""
+        eig_real = np.empty(n_eigs, dtype=np.float64)
+        eig_imag = np.empty(n_eigs, dtype=np.float64)
+        full_size = self._nu + self._nv + self._np
+        vec_real = np.empty((n_eigs, full_size), dtype=np.float64)
+        vec_imag = np.empty((n_eigs, full_size), dtype=np.float64)
+        base_residual_inf = ct.c_double()
+        matvec_count = ct.c_longlong()
+        dense_operator_bytes = ct.c_longlong()
+        fu_arr, fv_arr = self._force_arrays(fu, fv)
+
+        status = self._dll.stokes_mac_linearized_eig_c(
+            self._handle,
+            ct.c_int(n_eigs),
+            which.encode("ascii"),
+            self._maybe_double_ptr(fu_arr),
+            self._maybe_double_ptr(fv_arr),
+            self._double_ptr(eig_real),
+            self._double_ptr(eig_imag),
+            self._double_ptr(vec_real),
+            self._double_ptr(vec_imag),
+            ct.byref(base_residual_inf),
+            ct.byref(matvec_count),
+            ct.byref(dense_operator_bytes),
+        )
+        if status != 0:
+            raise RuntimeError(f"C++ linearized eigensolve failed with status {status}")
+
+        eigenvalues = eig_real + 1j * eig_imag
+        eigenvectors = (vec_real + 1j * vec_imag).T
+        return (
+            eigenvalues,
+            eigenvectors,
+            float(base_residual_inf.value),
+            int(matvec_count.value),
+            int(dense_operator_bytes.value),
+        )
+
+    def solve_steady_newton(
+        self,
+        fu: np.ndarray | None,
+        fv: np.ndarray | None,
+        max_newton_iters: int,
+        residual_tol: float,
+        krylov_tol: float,
+        krylov_maxiter: int,
+        krylov_restart: int,
+        jacobian_rdiff: float,
+        line_search: str,
+        min_step: float,
+    ) -> tuple[int, float, float, bool, int, np.ndarray]:
+        """Run the fixed-point Newton-GMRES steady solve entirely in C++."""
+        changes = np.empty(max_newton_iters, dtype=np.float64)
+        newton_iters = ct.c_int()
+        residual_inf = ct.c_double()
+        max_div = ct.c_double()
+        converged = ct.c_int()
+        stop_code = ct.c_int()
+        change_count = ct.c_int()
+        fu_arr, fv_arr = self._force_arrays(fu, fv)
+
+        status = self._dll.stokes_mac_solve_steady_c(
+            self._handle,
+            ct.c_int(max_newton_iters),
+            ct.c_double(residual_tol),
+            ct.c_double(krylov_tol),
+            ct.c_int(krylov_maxiter),
+            ct.c_int(krylov_restart),
+            ct.c_double(jacobian_rdiff),
+            line_search.encode("ascii"),
+            ct.c_double(min_step),
+            self._maybe_double_ptr(fu_arr),
+            self._maybe_double_ptr(fv_arr),
+            ct.byref(newton_iters),
+            ct.byref(residual_inf),
+            ct.byref(max_div),
+            ct.byref(converged),
+            ct.byref(stop_code),
+            self._double_ptr(changes),
+            ct.byref(change_count),
+        )
+        if status != 0:
+            raise RuntimeError(f"C++ steady Newton-GMRES failed with status {status}")
+
+        used_changes = changes[: max(0, int(change_count.value))].copy()
+        return (
+            int(newton_iters.value),
+            float(residual_inf.value),
+            float(max_div.value),
+            bool(converged.value),
+            int(stop_code.value),
+            used_changes,
+        )
 
     @property
     def nu_u(self) -> int:
@@ -252,6 +343,7 @@ class StokesMACLib:
 
     def _bind_c_api(self) -> None:
         dll = self._dll
+        double_ptr = DoublePtr
         dll.stokes_mac_create_c.argtypes = [
             ct.c_int,
             ct.c_int,
@@ -269,7 +361,7 @@ class StokesMACLib:
             ct.c_void_p,
             ct.c_double,
             ct.c_int,
-            ct.POINTER(ct.c_double),
+            double_ptr,
         ]
         dll.stokes_mac_run_steps_c.restype = None
 
@@ -277,12 +369,11 @@ class StokesMACLib:
             ct.c_void_p,
             ct.c_double,
             ct.c_int,
-            ct.POINTER(ct.c_double),
-            ct.POINTER(ct.c_double),
+            double_ptr,
+            double_ptr,
         ]
         dll.stokes_mac_run_steps_diagnostics_c.restype = None
 
-        double_ptr = ct.POINTER(ct.c_double)
         dll.stokes_mac_set_bc_c.argtypes = [
             ct.c_void_p,
             double_ptr,
@@ -336,13 +427,74 @@ class StokesMACLib:
         for name in ("stokes_mac_get_p_c", "stokes_mac_get_u_c", "stokes_mac_get_v_c"):
             fn = getattr(dll, name)
             fn.argtypes = [ct.c_void_p]
-            fn.restype = ct.POINTER(ct.c_double)
+            fn.restype = double_ptr
 
-    def _copy_field(
-        self,
-        ptr: ct.POINTER(ct.c_double),
-        shape_xy: tuple[int, int],
-    ) -> np.ndarray:
+        dll.stokes_mac_linearized_eig_c.argtypes = [
+            ct.c_void_p,
+            ct.c_int,
+            ct.c_char_p,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            ct.POINTER(ct.c_longlong),
+            ct.POINTER(ct.c_longlong),
+        ]
+        dll.stokes_mac_linearized_eig_c.restype = ct.c_int
+
+        dll.stokes_mac_solve_steady_c.argtypes = [
+            ct.c_void_p,
+            ct.c_int,
+            ct.c_double,
+            ct.c_double,
+            ct.c_int,
+            ct.c_int,
+            ct.c_double,
+            ct.c_char_p,
+            ct.c_double,
+            double_ptr,
+            double_ptr,
+            ct.POINTER(ct.c_int),
+            double_ptr,
+            double_ptr,
+            ct.POINTER(ct.c_int),
+            ct.POINTER(ct.c_int),
+            double_ptr,
+            ct.POINTER(ct.c_int),
+        ]
+        dll.stokes_mac_solve_steady_c.restype = ct.c_int
+
+    def _copy_field(self, ptr: DoublePtr, shape_xy: tuple[int, int]) -> np.ndarray:
         """Copy a C row-major array into a (Nx, Ny) NumPy array (x-first)."""
         nx, ny = shape_xy
         return np.ctypeslib.as_array(ptr, shape=(nx * ny,)).copy().reshape(ny, nx).T
+
+    @staticmethod
+    def _double_array(arr: np.ndarray) -> np.ndarray:
+        """Return arr as a contiguous float64 NumPy array."""
+        return np.ascontiguousarray(arr, dtype=np.float64)
+
+    @staticmethod
+    def _double_ptr(arr: np.ndarray) -> DoublePtr:
+        """Return a ctypes double pointer for a contiguous float64 NumPy array."""
+        return arr.ctypes.data_as(DoublePtr)
+
+    @staticmethod
+    def _maybe_double_ptr(arr: np.ndarray | None) -> DoublePtr:
+        """Return NULL for None, otherwise a ctypes double pointer."""
+        if arr is None:
+            return ct.cast(None, DoublePtr)
+        return arr.ctypes.data_as(DoublePtr)
+
+    @staticmethod
+    def _force_arrays(
+        fu: np.ndarray | None,
+        fv: np.ndarray | None,
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Keep optional force arrays contiguous and alive across the C call."""
+        fu_arr = None if fu is None else StokesMACLib._double_array(fu)
+        fv_arr = None if fv is None else StokesMACLib._double_array(fv)
+        return fu_arr, fv_arr

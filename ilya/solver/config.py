@@ -88,9 +88,6 @@ class SimConfig:
     linear_state_path: str = "plots/steady/state_internal.pkl"
     linear_n_eigs: int = 6
     linear_which: str = "LR"
-    linear_tol: float = 1e-7
-    linear_maxiter: int = 300
-    linear_jacobian_rdiff: float = 1e-5
 
     projected_state_path: str = "plots/steady/state_internal.pkl"
     projected_eigenpairs_path: str = "plots/linearized/eigenpairs.pkl"
@@ -151,12 +148,6 @@ class SimConfig:
             raise ValueError("linear_n_eigs must be positive")
         if self.linear_which not in ("LM", "SM", "LR", "SR", "LI", "SI"):
             raise ValueError("linear_which must be one of LM, SM, LR, SR, LI, SI")
-        if self.linear_tol <= 0:
-            raise ValueError("linear_tol must be positive")
-        if self.linear_maxiter <= 0:
-            raise ValueError("linear_maxiter must be positive")
-        if self.linear_jacobian_rdiff <= 0:
-            raise ValueError("linear_jacobian_rdiff must be positive")
         if self.projected_projection_rcond < 0:
             raise ValueError("projected_projection_rcond must be non-negative")
         if self.projected_t_end is not None and self.projected_t_end <= 0:
@@ -188,29 +179,27 @@ class SimConfig:
 
     def projected_runtime_config(self) -> "SimConfig":
         """Return a copy with runtime overrides for projected-run."""
+        required = {
+            "projected_run.t_end": self.projected_t_end,
+            "projected_run.n_steps": self.projected_n_steps,
+            "projected_run.video_fps": self.projected_video_fps,
+            "projected_run.video_speed": self.projected_video_speed,
+            "projected_run.save_velocity_change_plot": self.projected_save_velocity_change_plot,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if missing:
+            raise ValueError(
+                "projected-run is a separate launch; set explicit config keys: "
+                + ", ".join(missing)
+            )
+
         return replace(
             self,
-            t_end=self.projected_t_end if self.projected_t_end is not None else self.t_end,
-            n_steps=(
-                self.projected_n_steps
-                if self.projected_n_steps is not None
-                else self.n_steps
-            ),
-            video_fps=(
-                self.projected_video_fps
-                if self.projected_video_fps is not None
-                else self.video_fps
-            ),
-            video_speed=(
-                self.projected_video_speed
-                if self.projected_video_speed is not None
-                else self.video_speed
-            ),
-            save_velocity_change_plot=(
-                self.projected_save_velocity_change_plot
-                if self.projected_save_velocity_change_plot is not None
-                else self.save_velocity_change_plot
-            ),
+            t_end=self.projected_t_end,
+            n_steps=self.projected_n_steps,
+            video_fps=self.projected_video_fps,
+            video_speed=self.projected_video_speed,
+            save_velocity_change_plot=self.projected_save_velocity_change_plot,
             conv_tol=0.0,
         )
 
@@ -221,7 +210,9 @@ class SimConfig:
 
         forcing = data.get("forcing", {}) or {}
         boundary = data.get("boundary", {}) or {}
-        output = data.get("output", {}) or {}
+        run = data.get("run", {}) or {}
+        output = run.get("output", data.get("output", {}) or {}) or {}
+        convergence = run.get("convergence", data.get("convergence", {}) or {}) or {}
         time_data = data.get("time", {}) or {}
         steady = data.get("steady_solver", {}) or {}
         linear = data.get("linearization", {}) or {}
@@ -233,13 +224,21 @@ class SimConfig:
             nx=data["grid"]["nx"],
             ny=data["grid"]["ny"],
             nu=data["physics"]["nu"],
-            t_end=time_data.get("t_end", 30.0),
-            n_steps=time_data.get("n_steps", 1000),
-            video_fps=output.get("video_fps", 30.0),
-            video_speed=output.get("video_speed", 1.0),
-            save_velocity_change_plot=bool(output.get("save_velocity_change_plot", False)),
-            conv_tol=(data.get("convergence", {}) or {}).get("tol", 1e-6),
-            fixed_time_state_t=output.get("fixed_time_state_t", 0.0),
+            t_end=run.get("t_end", time_data.get("t_end", 30.0)),
+            n_steps=run.get("n_steps", time_data.get("n_steps", 1000)),
+            video_fps=run.get("video_fps", output.get("video_fps", 30.0)),
+            video_speed=run.get("video_speed", output.get("video_speed", 1.0)),
+            save_velocity_change_plot=bool(
+                run.get(
+                    "save_velocity_change_plot",
+                    output.get("save_velocity_change_plot", False),
+                )
+            ),
+            conv_tol=run.get("convergence_tol", convergence.get("tol", 1e-6)),
+            fixed_time_state_t=run.get(
+                "fixed_time_state_t",
+                output.get("fixed_time_state_t", 0.0),
+            ),
             steady_max_newton_iters=steady.get("max_newton_iters", 12),
             steady_residual_tol=steady.get("residual_tol", 1e-8),
             steady_krylov_tol=steady.get("krylov_tol", 1e-6),
@@ -251,9 +250,6 @@ class SimConfig:
             linear_state_path=str(linear.get("state_path", "plots/steady/state_internal.pkl")),
             linear_n_eigs=linear.get("n_eigs", 6),
             linear_which=str(linear.get("which", "LR")),
-            linear_tol=linear.get("tol", 1e-7),
-            linear_maxiter=linear.get("maxiter", 300),
-            linear_jacobian_rdiff=linear.get("jacobian_rdiff", 1e-5),
             projected_state_path=str(
                 projected.get("state_path", "plots/steady/state_internal.pkl")
             ),
