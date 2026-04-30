@@ -119,7 +119,7 @@ void Solver::computeRHS(Eigen::MatrixXd& rhs) const {
 
             term = (tmp1 - 2 * tmp2 + tmp3) / (dx_ * dx_);
 
-            rhs(i, j) = psi_(i, j) + dt_ * omega_(i, j) + dt_*dt_*term;
+            rhs(i, j) = psi_(i, j) + dt_ * omega_(i, j) + dt_ * dt_ * term;
         }
     }
 
@@ -137,7 +137,17 @@ void Solver::computeOmegaRHS(Eigen::MatrixXd& rhs) const {
         for (int j = 1; j < ny_ - 1; ++j) {
             const double x = i * dx_;
             const double y = j * dy_;
+            const double dyy_west =
+                (omega_(i - 1, j + 1) - 2.0 * omega_(i - 1, j) + omega_(i - 1, j - 1)) / (dy_ * dy_);
+            const double dyy_center =
+                (omega_(i, j + 1) - 2.0 * omega_(i, j) + omega_(i, j - 1)) / (dy_ * dy_);
+            const double dyy_east =
+                (omega_(i + 1, j + 1) - 2.0 * omega_(i + 1, j) + omega_(i + 1, j - 1)) / (dy_ * dy_);
+            const double dxx_dyy_omega =
+                (dyy_east - 2.0 * dyy_center + dyy_west) / (dx_ * dx_);
+
             rhs(i, j) = omega_(i, j) - dt_ * arakawaJacobian(i, j) - dt_ * OmegaForcing(x, y, cfg_.lx, cfg_.ly);
+            rhs(i, j) += (dt_ * dt_ / (Re_ * Re_)) * dxx_dyy_omega; // Factorization correction O(dt^2)
         }
     }
 }
@@ -400,7 +410,7 @@ void Solver::save(const std::string& directory) const
             const double x = i * dx_;
             const double y = j * dy_;
 
-            out << std::fixed << std::setprecision(6)
+            out << std::fixed << std::setprecision(15)
                 << x << ","
                 << y << ","
                 << psi_(i, j) << ","
