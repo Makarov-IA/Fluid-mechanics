@@ -27,7 +27,7 @@ inline double OmegaForcing(double x, double y, double lx, double ly)
     forcing += mode_dy(1, 3, a13);
     forcing += mode_dy(3, 1, a31);
 
-    return forcing;
+    return -forcing;
 }
 
 #endif // FORCING__OMEGA_FORCING_HPP

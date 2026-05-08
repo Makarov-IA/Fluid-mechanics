@@ -1,11 +1,12 @@
+import argparse
 import csv
 import glob
 import os
 import re
-import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 import numpy as np
 
 try:
@@ -28,6 +29,27 @@ def step_sort_key(path):
     if match is None:
         return (-1, base)
     return (int(match.group(1)), base)
+
+
+def collect_csv_files(results_dir, snapshot_index=None):
+    if snapshot_index is None:
+        return sorted(
+            glob.glob(os.path.join(results_dir, "result_*.csv")),
+            key=step_sort_key,
+        )
+
+    files = []
+    with open(snapshot_index, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            raw_path = row.get("filtered_csv") or row.get("source_csv") or ""
+            if not raw_path:
+                continue
+            csv_path = os.path.abspath(os.path.normpath(os.path.expanduser(raw_path)))
+            if os.path.exists(csv_path):
+                files.append(csv_path)
+
+    return sorted(files, key=step_sort_key)
 
 
 def read_rows(path):
@@ -83,23 +105,62 @@ def regularize_axis(axis):
     return np.linspace(float(axis[0]), float(axis[-1]), axis.size)
 
 
-def symmetric_levels(values, n_levels=31, percentile=98.0):
-    bound = float(np.percentile(np.abs(values), percentile))
-    bound = max(bound, 1e-12)
-    return np.linspace(-bound, bound, n_levels)
+def increasing_levels(vmin, vmax, n_levels=31):
+    vmin = float(vmin)
+    vmax = float(vmax)
+    if not np.isfinite(vmin) or not np.isfinite(vmax):
+        vmin, vmax = -1.0, 1.0
+    if abs(vmax - vmin) < 1e-14 * max(1.0, abs(vmin), abs(vmax)):
+        center = 0.5 * (vmin + vmax)
+        half_width = max(1e-12, 1e-6 * max(1.0, abs(center)))
+        vmin = center - half_width
+        vmax = center + half_width
+    return np.linspace(vmin, vmax, n_levels)
 
 
-def build_frame_stats(grids, xs, ys):
+def scan_file_ranges(csv_path):
+    rows = read_rows(csv_path)
+    grids, _, _ = build_grids(rows)
+    speed = np.hypot(grids["u"], grids["v"])
+    return {
+        "psi_min": float(np.min(grids["psi"])),
+        "psi_max": float(np.max(grids["psi"])),
+        "omega_min": float(np.min(grids["omega"])),
+        "omega_max": float(np.max(grids["omega"])),
+        "speed_max": float(np.max(speed)),
+    }
+
+
+def merge_plot_scale(ranges):
+    psi_min = min(item["psi_min"] for item in ranges)
+    psi_max = max(item["psi_max"] for item in ranges)
+    omega_min = min(item["omega_min"] for item in ranges)
+    omega_max = max(item["omega_max"] for item in ranges)
+    speed_max = max(max(item["speed_max"] for item in ranges), 1e-12)
+    return {
+        "psi_limits": increasing_levels(psi_min, psi_max),
+        "omega_limits": increasing_levels(omega_min, omega_max),
+        "speed_limits": (0.0, speed_max),
+    }
+
+
+def build_frame_stats(grids, xs, ys, plot_scale=None):
     x_span = xs[-1] - xs[0] if len(xs) > 1 else 1.0
     y_span = ys[-1] - ys[0] if len(ys) > 1 else 1.0
     domain_span = max(min(x_span, y_span), 1e-12)
     speed = np.hypot(grids["u"], grids["v"])
-    speed_max = max(float(np.max(speed)), 1e-12)
+    if plot_scale is None:
+        plot_scale = {
+            "psi_limits": increasing_levels(float(np.min(grids["psi"])), float(np.max(grids["psi"]))),
+            "omega_limits": increasing_levels(float(np.min(grids["omega"])), float(np.max(grids["omega"]))),
+            "speed_limits": (0.0, max(float(np.max(speed)), 1e-12)),
+        }
+    speed_max = max(float(plot_scale["speed_limits"][1]), 1e-12)
 
     return {
-        "psi_limits": symmetric_levels(grids["psi"]),
-        "omega_limits": symmetric_levels(grids["omega"]),
-        "speed_limits": (0.0, speed_max),
+        "psi_limits": plot_scale["psi_limits"],
+        "omega_limits": plot_scale["omega_limits"],
+        "speed_limits": plot_scale["speed_limits"],
         "speed": speed,
         "arrow_factor": 0.075 * domain_span / speed_max,
         "quiver_scale": 1.0,
@@ -134,17 +195,18 @@ def build_scalar_frame_with_quiver(
         levels = stats[f"{field}_limits"]
 
         contourf = ax.contourf(
-            x_grid, y_grid, scalar, levels=levels, cmap=cmap
+            x_grid, y_grid, scalar, levels=levels, cmap=cmap, extend="both"
         )
-        ax.contour(
-            x_grid,
-            y_grid,
-            scalar,
-            levels=levels,
-            colors="black",
-            linewidths=0.25,
-            alpha=0.45,
-        )
+        if float(np.max(scalar)) > float(np.min(scalar)):
+            ax.contour(
+                x_grid,
+                y_grid,
+                scalar,
+                levels=levels,
+                colors="black",
+                linewidths=0.25,
+                alpha=0.45,
+            )
         ax.quiver(
             x_grid[::skip, ::skip],
             y_grid[::skip, ::skip],
@@ -174,10 +236,20 @@ def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
         xs_plot = regularize_axis(xs)
         ys_plot = regularize_axis(ys)
         speed = stats["speed"]
+        _, speed_max = stats["speed_limits"]
+        speed_max = max(float(speed_max), 1e-12)
+        speed_levels = np.linspace(0.0, speed_max, 31)
+        speed_norm = Normalize(vmin=0.0, vmax=speed_max)
         x_grid, y_grid = np.meshgrid(xs_plot, ys_plot)
 
         bg = ax.contourf(
-            x_grid, y_grid, speed, levels=31, cmap="viridis"
+            x_grid,
+            y_grid,
+            speed,
+            levels=speed_levels,
+            cmap="viridis",
+            norm=speed_norm,
+            extend="max",
         )
         stream = ax.streamplot(
             xs_plot,
@@ -186,7 +258,8 @@ def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
             grids["v"],
             color=speed,
             cmap="plasma",
-            linewidth=0.8 + 1.6 * speed / max(float(np.max(speed)), 1e-12),
+            norm=speed_norm,
+            linewidth=0.8 + 1.6 * speed / speed_max,
             density=1.45,
             arrowsize=1.0,
         )
@@ -199,10 +272,10 @@ def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
 
 
 def make_frame_set_task(task):
-    csv_path, frames_dir = task
+    csv_path, frames_dir, plot_scale = task
     rows = read_rows(csv_path)
     grids, xs, ys = build_grids(rows)
-    stats = build_frame_stats(grids, xs, ys)
+    stats = build_frame_stats(grids, xs, ys, plot_scale)
     base = os.path.splitext(os.path.basename(csv_path))[0]
     outputs = {}
 
@@ -311,26 +384,59 @@ def build_residual_plot(results_dir, plot_root):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: plot_fields.py <results_dir> <frames_dir>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Render Alex CSV fields to PNG frames.")
+    parser.add_argument("results_dir")
+    parser.add_argument("frames_dir")
+    parser.add_argument(
+        "--snapshot-index",
+        default=None,
+        help="Optional CSV index with filtered_csv/source_csv column; prevents stale files from old runs.",
+    )
+    args = parser.parse_args()
 
-    results_dir = os.path.abspath(os.path.normpath(sys.argv[1]))
-    frames_dir = os.path.abspath(os.path.normpath(sys.argv[2]))
+    results_dir = os.path.abspath(os.path.normpath(args.results_dir))
+    frames_dir = os.path.abspath(os.path.normpath(args.frames_dir))
+    snapshot_index = (
+        os.path.abspath(os.path.normpath(args.snapshot_index))
+        if args.snapshot_index is not None
+        else None
+    )
     plot_root = os.path.dirname(frames_dir)
 
     os.makedirs(frames_dir, exist_ok=True)
     os.makedirs(plot_root, exist_ok=True)
 
-    csv_files = sorted(
-        glob.glob(os.path.join(results_dir, "result_*.csv")),
-        key=step_sort_key,
-    )
+    csv_files = collect_csv_files(results_dir, snapshot_index)
+    if snapshot_index is not None:
+        print(f"[plot] Using snapshot index: {snapshot_index}")
     if not csv_files:
         raise RuntimeError(f"No result_*.csv found in {results_dir}")
 
-    tasks = [(csv_path, frames_dir) for csv_path in csv_files]
-    workers = max(1, min(os.cpu_count() or 1, len(tasks)))
+    workers = max(1, min(os.cpu_count() or 1, len(csv_files)))
+
+    print(f"[plot] Scanning shared scale from {len(csv_files)} CSV files")
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(scan_file_ranges, csv_path) for csv_path in csv_files]
+        ranges = []
+        progress_total = len(futures)
+        if tqdm is not None:
+            with tqdm(total=progress_total, desc="scan scale", unit="file") as bar:
+                for fut in as_completed(futures):
+                    ranges.append(fut.result())
+                    bar.update(1)
+        else:
+            for fut in as_completed(futures):
+                ranges.append(fut.result())
+
+    plot_scale = merge_plot_scale(ranges)
+    print(
+        "[plot] Shared scale: "
+        f"psi=[{plot_scale['psi_limits'][0]:.6e}, {plot_scale['psi_limits'][-1]:.6e}], "
+        f"omega=[{plot_scale['omega_limits'][0]:.6e}, {plot_scale['omega_limits'][-1]:.6e}], "
+        f"speed=[0, {plot_scale['speed_limits'][1]:.6e}]"
+    )
+
+    tasks = [(csv_path, frames_dir, plot_scale) for csv_path in csv_files]
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(make_frame_set_task, task) for task in tasks]
