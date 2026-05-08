@@ -920,7 +920,7 @@ Eigen::SparseMatrix<double> StokesMac2D::build_projection_matrix() const {
 }
 
 Eigen::VectorXd StokesMac2D::project_velocity_rhs(
-    const Eigen::SparseLU<Eigen::SparseMatrix<double>>& solver,
+    const SparseSystemSolver& solver,
     const Eigen::VectorXd& raw,
     Eigen::VectorXd* pressure
 ) const {
@@ -1049,7 +1049,7 @@ int StokesMac2D::solve_linearized_eigenmodes(int n_eigs,
         }
 
         Eigen::SparseMatrix<double> projection_matrix = build_projection_matrix();
-        Eigen::SparseLU<Eigen::SparseMatrix<double>> projection_solver;
+        SparseSystemSolver projection_solver;
         projection_solver.analyzePattern(projection_matrix);
         projection_solver.factorize(projection_matrix);
         if (projection_solver.info() != Eigen::Success) {

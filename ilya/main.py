@@ -40,6 +40,16 @@ console = Console()
 PROJECT_DIR = Path(__file__).parent
 
 
+def _resolve_config_path(config: str) -> Path:
+    """Resolve a config name or path relative to the project directory."""
+    path = Path(config)
+    if path.suffix == "":
+        path = path.with_suffix(".yaml")
+    if not path.is_absolute():
+        path = PROJECT_DIR / path
+    return path
+
+
 def _cell_centres(cfg: SimConfig) -> tuple[np.ndarray, np.ndarray]:
     """Return cell-centred x/y coordinates for the MAC pressure grid."""
     xc = (np.arange(cfg.nx) + 0.5) * (cfg.lx / cfg.nx)
@@ -441,9 +451,18 @@ def main() -> None:
         default="simulation",
         help="Select which solver workflow to run",
     )
+    parser.add_argument(
+        "--config",
+        default="config",
+        help=(
+            "Config file name or path. The .yaml suffix is optional; "
+            "relative paths are resolved from the project directory."
+        ),
+    )
     args = parser.parse_args()
 
-    config_path = PROJECT_DIR / "config.yaml"
+    config_path = _resolve_config_path(args.config)
+    console.print(f"  Config: [dim]{config_path}[/dim]")
     cfg = SimConfig.from_yaml(config_path)
 
     if args.mode == "steady":

@@ -1,8 +1,22 @@
 #pragma once
 
 #include <Eigen/Sparse>
-#include <Eigen/SparseLU>
+#if defined(USE_UMFPACK)
+#  include <Eigen/UmfPackSupport>
+#elif defined(USE_ACCELERATE_QR)
+#  include <Eigen/AccelerateSupport>
+#else
+#  include <Eigen/SparseLU>
+#endif
 #include <vector>
+
+#if defined(USE_UMFPACK)
+using SparseSystemSolver = Eigen::UmfPackLU<Eigen::SparseMatrix<double>>;
+#elif defined(USE_ACCELERATE_QR)
+using SparseSystemSolver = Eigen::AccelerateQR<Eigen::SparseMatrix<double>>;
+#else
+using SparseSystemSolver = Eigen::SparseLU<Eigen::SparseMatrix<double>>;
+#endif
 
 // ---------------------------------------------------------------------------
 // 2-D Navier-Stokes on a staggered MAC grid
@@ -21,7 +35,7 @@
 //   Viscosity  : implicit (backward Euler)
 //   Pressure   : implicit
 //
-// The coefficient matrix is constant → factorised once at construction (SparseLU).
+// The coefficient matrix is constant → factorised once at construction.
 // ---------------------------------------------------------------------------
 
 class StokesMac2D {
@@ -169,8 +183,8 @@ private:
     const int np_unknowns_;   // Nx*Ny
     const int total_unknowns_;
 
-    Eigen::SparseMatrix<double>                  system_mat_;
-    Eigen::SparseLU<Eigen::SparseMatrix<double>> system_solver_;
+    Eigen::SparseMatrix<double> system_mat_;
+    SparseSystemSolver          system_solver_;
 
     // -----------------------------------------------------------------------
     // Pre-allocated work buffers — avoid per-step heap allocation
@@ -246,7 +260,7 @@ private:
     double steady_residual_inf(const double* fu, const double* fv) const;
     Eigen::SparseMatrix<double> build_projection_matrix() const;
     Eigen::VectorXd project_velocity_rhs(
-        const Eigen::SparseLU<Eigen::SparseMatrix<double>>& solver,
+        const SparseSystemSolver& solver,
         const Eigen::VectorXd& raw,
         Eigen::VectorXd* pressure
     ) const;

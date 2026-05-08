@@ -1,0 +1,69 @@
+# Lid-driven cavity benchmark for comparison with Erturk--Corke--Gokcol,
+# Re = 10000, unit square, moving top lid.
+
+domain:
+  lx: 1.0
+  ly: 1.0
+
+grid:
+  # Article data were computed on a very fine 601 x 601 grid.
+  # This value is a practical starting point for the current monolithic solver;
+  # increase nx, ny if the direct solve is still affordable.
+  nx: 601
+  ny: 601
+
+physics:
+  # Re = U L / nu, with U = 1 and L = 1.
+  nu: 1.0e-4
+
+boundary:
+  # Tangential lid velocity.
+  u_top: "1.0"
+
+  # All other wall velocities are zero.
+  u_bot: "0.0"
+  v_left: "0.0"
+  v_right: "0.0"
+  u_left: "0.0"
+  u_right: "0.0"
+  v_bot: "0.0"
+  v_top: "0.0"
+
+forcing:
+  fu: "0.0"
+  fv: "0.0"
+
+run:
+  t_end: 50.0
+  n_steps: 500000
+  video_fps: 30
+  video_speed: 5
+  save_velocity_change_plot: true
+  fixed_time_state_t: 50.0
+  convergence_tol: 1.0e-8
+
+steady_solver:
+  max_newton_iters: 20
+  residual_tol: 1.0e-8
+  krylov_tol: 1.0e-6
+  krylov_maxiter: 250
+  krylov_restart: 100
+  jacobian_rdiff: 1.0e-4
+  line_search: armijo
+  min_step: 1.0e-3
+
+linearization:
+  state_path: plots/steady/state_internal.pkl
+  n_eigs: 6
+  which: LR
+
+projected_run:
+  t_end: 50.0
+  n_steps: 500000
+  video_fps: 10
+  video_speed: 5
+  save_velocity_change_plot: true
+  state_path: plots/steady/state_internal.pkl
+  eigenpairs_path: plots/linearized/eigenpairs.pkl
+  real_threshold: 1.0e-8
+  projection_rcond: 1.0e-12
