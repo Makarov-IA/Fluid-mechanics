@@ -59,9 +59,10 @@ dkms.conf
 __pycache__
 __pycache__/
 alex/papers
-alex/data/results/
-alex/plots/frames
 alex/build/
+alex/cpu/build/
+alex/data/results/
+alex/plots/
 alex/linear_stability/filtered_results/
 alex/linear_stability/plots/frames/
 alex/linear_stability/videos/
@@ -69,16 +70,38 @@ alex/linear_stability/videos/
 *.bin
 *.mp4
 
-# Torch cavity runs: keep source/configs, ignore heavy raw outputs.
-alex/torch_cavity_601/results/
-alex/torch_cavity_601/analysis/*/plots/frames/
-alex/torch_cavity_601/analysis/*/plots/videos/
-alex/torch_cavity_601/analysis/*/plots/residual_history.png
+# Unified result layout.
+alex/results/binaries/
+alex/results/figures/*/frames/
+alex/results/linear_stability/*/filtered_binaries/
+alex/results/linear_stability/*/filtered_figures/frames/
 
-# Final paper-ready cavity figures/tables may be committed.
-!alex/torch_cavity_601/analysis/
-!alex/torch_cavity_601/analysis/*/
-!alex/torch_cavity_601/analysis/*/profiles/
-!alex/torch_cavity_601/analysis/*/profiles/final_streamplot.png
-!alex/torch_cavity_601/analysis/*/profiles/final_profiles.png
-!alex/torch_cavity_601/analysis/*/profiles/vortex_summary.csv
+# Paper-ready figures, videos, and CSV tables may be committed explicitly.
+!alex/results/
+!alex/results/binaries/
+!alex/results/binaries/.gitkeep
+!alex/results/figures/
+!alex/results/figures/**/
+!alex/results/figures/**/*.png
+!alex/results/videos/
+!alex/results/videos/**/
+!alex/results/videos/**/*.mp4
+!alex/results/tables/
+!alex/results/tables/**/
+!alex/results/tables/**/*.csv
+!alex/results/stationary/
+!alex/results/stationary/**/
+!alex/results/stationary/.gitkeep
+!alex/results/stationary/**/*.csv
+!alex/results/stationary/**/*.png
+!alex/results/newton/
+!alex/results/newton/**/
+!alex/results/newton/.gitkeep
+!alex/results/newton/**/*.csv
+!alex/results/newton/**/*.png
+!alex/results/linear_stability/
+!alex/results/linear_stability/**/
+!alex/results/linear_stability/.gitkeep
+!alex/results/linear_stability/**/*.csv
+!alex/results/linear_stability/**/*.png
+!alex/results/linear_stability/**/*.mp4

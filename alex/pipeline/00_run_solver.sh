@@ -1,22 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="$ROOT_DIR/build"
-BIN="$BUILD_DIR/solver_app.exe"
+ALEX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ALEX_DIR/RUN"
 
-CONFIG_PATH="${1:-$ROOT_DIR/configs/config.cfg}"
-OUT_DIR="${2:-$ROOT_DIR/data/results}"
-
-rm -rf "$OUT_DIR"
-
-mkdir -p "$OUT_DIR"
-
-make -C "$ROOT_DIR" all
-
-if [[ ! -x "$BIN" ]]; then
-  echo "[run] Build failed: binary not found at $BIN" >&2
-  exit 1
-fi
-
-"$BIN" "$CONFIG_PATH" "$OUT_DIR"
+CONFIG_PATH="${1:-$CONFIG_PATH}" \
+BIN_DIR="${2:-$BIN_DIR}" \
+BACKEND="${BACKEND:-cpu}" \
+bash "$ALEX_DIR/scripts/bash/run.sh"

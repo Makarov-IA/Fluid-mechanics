@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+# Central experiment settings. Edit this file, then run scripts without args:
+#   bash alex/scripts/run.sh
+#   bash alex/scripts/render.sh
+#   bash alex/scripts/video.sh
+
+RUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ALEX_DIR="${ALEX_DIR:-$RUN_DIR}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$ALEX_DIR/.." && pwd)}"
+
+# Backend: cpu or gpu.
+BACKEND="${BACKEND:-gpu}"
+
+# Human-readable experiment name. All result folders are created from this.
+EXP_NAME="${EXP_NAME:-gpu_cavity_re1000}"
+
+# Config path for the selected backend.
+CONFIG_PATH="${CONFIG_PATH:-$ALEX_DIR/gpu/configs/cavity_re1000.cfg}"
+
+# Unified result layout.
+RESULTS_ROOT="${RESULTS_ROOT:-$ALEX_DIR/results}"
+BIN_DIR="${BIN_DIR:-$RESULTS_ROOT/binaries/$EXP_NAME}"
+FIG_DIR="${FIG_DIR:-$RESULTS_ROOT/figures/$EXP_NAME}"
+VIDEO_DIR="${VIDEO_DIR:-$RESULTS_ROOT/videos/$EXP_NAME}"
+TABLE_DIR="${TABLE_DIR:-$RESULTS_ROOT/tables/$EXP_NAME}"
+STATIONARY_DIR="${STATIONARY_DIR:-$RESULTS_ROOT/stationary/$EXP_NAME}"
+NEWTON_DIR="${NEWTON_DIR:-$RESULTS_ROOT/newton/$EXP_NAME}"
+STABILITY_DIR="${STABILITY_DIR:-$RESULTS_ROOT/linear_stability/$EXP_NAME}"
+FILTERED_BIN_DIR="${FILTERED_BIN_DIR:-$STABILITY_DIR/filtered_binaries}"
+FILTERED_FIG_DIR="${FILTERED_FIG_DIR:-$STABILITY_DIR/filtered_figures}"
+FILTERED_VIDEO_DIR="${FILTERED_VIDEO_DIR:-$STABILITY_DIR/filtered_videos}"
+
+# GPU settings.
+DEVICE="${DEVICE:-cuda:0}"
+DTYPE="${DTYPE:-float64}"
+
+# Script behavior.
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+CLEAN_BINARIES="${CLEAN_BINARIES:-true}"
+FPS="${FPS:-30}"

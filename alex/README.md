@@ -1,81 +1,141 @@
-# README (кратко)
+# Alex Fluid Mechanics Project
 
-## 1. Постановка задачи
+Единая структура проекта:
 
-Рассматривается стационарное двумерное течение несжимаемой вязкой жидкости в квадратной области:
+```text
+alex/
+├── RUN
+├── cpu/
+├── gpu/
+├── common/
+├── scripts/
+│   ├── bash/
+│   └── python/
+├── pipeline/
+├── results/
+└── paper/
+```
 
-[
-0 \le x \le 1, \quad 0 \le y \le 1
-]
+## Backends
 
-Используется формулировка через функцию тока (\psi) и завихренность (\omega).
+`alex/cpu` - авторский C++ solver:
 
-Уравнения:
+```text
+alex/cpu/solver/
+alex/cpu/forcing/
+alex/cpu/configs/pulsation.cfg
+```
 
-[
-\frac{\partial^2 \psi}{\partial x^2} + \frac{\partial^2 \psi}{\partial y^2} = -\omega
-]
+`alex/gpu` - PyTorch/CUDA solver для lid-driven cavity:
 
-[
-\frac{1}{Re}\left(\frac{\partial^2 \omega}{\partial x^2} + \frac{\partial^2 \omega}{\partial y^2}\right)
-= \frac{\partial \psi}{\partial y}\frac{\partial \omega}{\partial x} - \frac{\partial \psi}{\partial x}\frac{\partial \omega}{\partial y}
-]
+```text
+alex/gpu/torch_cavity_solver.py
+alex/gpu/configs/
+```
 
-где (Re) — число Рейнольдса.
+Общий бинарный формат снапшотов находится в:
 
----
+```text
+alex/common/snapshot_io.py
+```
 
-## 2. Граничные условия
+## RUN
 
-Функция тока:
+Все основные настройки задаются в одном файле:
 
-[
-\psi = 0 \quad \text{на всех границах}
-]
+```text
+alex/RUN
+```
 
-Скорости:
+Там выбираются:
 
-* верхняя стенка: (u = 1, v = 0)
-* остальные стенки: (u = 0, v = 0)
+```text
+BACKEND
+EXP_NAME
+CONFIG_PATH
+DEVICE
+DTYPE
+```
 
-Завихренность (формула Тома):
+Все папки результатов строятся по `EXP_NAME`.
 
-[
-\omega_0 = -\frac{2\psi_1}{h^2} - \frac{2U}{h}
-]
+## Results
 
----
+```text
+alex/results/binaries/<EXP_NAME>/
+alex/results/figures/<EXP_NAME>/
+alex/results/videos/<EXP_NAME>/
+alex/results/tables/<EXP_NAME>/
+alex/results/stationary/<EXP_NAME>/
+alex/results/newton/<EXP_NAME>/
+alex/results/linear_stability/<EXP_NAME>/
+```
 
-## 3. Метод решения
+Основные данные пишутся в бинарники:
 
-Используется псевдовременной итерационный метод.
+```text
+result_*.bin
+```
 
-Вводятся уравнения с псевдовременем:
+В них хранятся:
 
-[
-\frac{\partial \psi}{\partial t} = \nabla^2 \psi + \omega
-]
+```text
+psi, omega, u, v
+```
 
-[
-\frac{\partial \omega}{\partial t} = \frac{1}{Re}\nabla^2 \omega + (\psi_y \omega_x - \psi_x \omega_y)
-]
+Служебные таблицы остаются CSV.
 
-Численная схема:
+## Main Commands
 
-* неявный шаг по времени (Euler);
-* центральные разности 2-го порядка;
-* пространственная факторизация (решение через трёхдиагональные системы);
-* раздельное обновление (\psi) и (\omega);
-* итерации до сходимости по невязке.
+Короткие entrypoints:
 
-Критерий сходимости:
+```bash
+bash alex/scripts/run.sh
+bash alex/scripts/render.sh
+bash alex/scripts/video.sh
+```
 
-[
-\max |R| < 10^{-10}
-]
+Полные bash-скрипты лежат здесь:
 
----
+```text
+alex/scripts/bash/
+```
 
-## 4. Что решается
+Python tools лежат здесь:
 
-Численно находится стационарное решение задачи lid-driven cavity для заданного (Re) на равномерной сетке.
+```text
+alex/scripts/python/
+```
+
+## Stationary, Newton, Stability
+
+```bash
+bash alex/scripts/bash/find_stationary.sh
+bash alex/scripts/bash/newton_from_csv.sh
+bash alex/scripts/bash/linear_stability.sh
+bash alex/scripts/bash/analyze_filtered.sh
+bash alex/scripts/bash/filtered_video.sh
+```
+
+## GPU Batch
+
+```bash
+bash alex/gpu/run_all.sh
+bash alex/gpu/render_all.sh
+```
+
+Параллельно по нескольким GPU:
+
+```bash
+RUN_PARALLEL=1 GPU_LIST=0,1,2 bash alex/gpu/run_all.sh
+```
+
+Smoke test:
+
+```bash
+bash alex/gpu/smoke_test.sh
+```
+
+## Compatibility
+
+`alex/pipeline` оставлен как совместимый слой. Его скрипты вызывают новые скрипты из `alex/scripts/bash`.

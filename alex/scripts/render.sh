@@ -2,4 +2,4 @@
 set -euo pipefail
 
 ALEX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-bash "$ALEX_DIR/scripts/bash/find_stationary.sh"
+bash "$ALEX_DIR/scripts/bash/render.sh" "$@"
