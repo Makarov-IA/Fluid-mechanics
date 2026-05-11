@@ -10,14 +10,14 @@ DTYPE="${DTYPE:-float64}"
 
 CONFIGS=(
   "$EXP_DIR/configs/cavity_re1000.cfg"
-  "$EXP_DIR/configs/cavity_re5000.cfg"
-  "$EXP_DIR/configs/cavity_re10000.cfg"
+  # "$EXP_DIR/configs/cavity_re5000.cfg"
+  # "$EXP_DIR/configs/cavity_re10000.cfg"
 )
 
 OUT_DIRS=(
   "$EXP_DIR/results/re1000"
-  "$EXP_DIR/results/re5000"
-  "$EXP_DIR/results/re10000"
+  # "$EXP_DIR/results/re5000"
+  # "$EXP_DIR/results/re10000"
 )
 
 IFS=',' read -r -a GPUS <<< "$GPU_LIST"
