@@ -1,6 +1,7 @@
 #include "solver.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -34,6 +35,22 @@ Solver::Solver(const Config& cfg) : cfg_(cfg)
 
     f_ = Eigen::MatrixXd::Zero(nx_, ny_);
     g_ = Eigen::MatrixXd::Zero(nx_, ny_);
+}
+
+double Solver::jacobian(int i, int j) const {
+    if (cfg_.use_arakawa) {
+        return arakawaJacobian(i, j);
+    }
+    return centralJacobian(i, j);
+}
+
+double Solver::centralJacobian(int i, int j) const {
+    const double psi_x = (psi_(i + 1, j) - psi_(i - 1, j)) / (2.0 * dx_);
+    const double psi_y = (psi_(i, j + 1) - psi_(i, j - 1)) / (2.0 * dy_);
+    const double omega_x = (omega_(i + 1, j) - omega_(i - 1, j)) / (2.0 * dx_);
+    const double omega_y = (omega_(i, j + 1) - omega_(i, j - 1)) / (2.0 * dy_);
+
+    return psi_x * omega_y - psi_y * omega_x;
 }
 
 double Solver::arakawaJacobian(int i, int j) const {
@@ -146,7 +163,7 @@ void Solver::computeOmegaRHS(Eigen::MatrixXd& rhs) const {
             const double dxx_dyy_omega =
                 (dyy_east - 2.0 * dyy_center + dyy_west) / (dx_ * dx_);
 
-            rhs(i, j) = omega_(i, j) - dt_ * arakawaJacobian(i, j) - dt_ * OmegaForcing(x, y, cfg_.lx, cfg_.ly);
+            rhs(i, j) = omega_(i, j) - dt_ * jacobian(i, j) - dt_ * OmegaForcing(x, y, cfg_.lx, cfg_.ly);
             rhs(i, j) += (dt_ * dt_ / (Re_ * Re_)) * dxx_dyy_omega; // Factorization correction O(dt^2)
         }
     }
@@ -277,7 +294,7 @@ void Solver::computeResiduals() {
         for (int j = 1; j < ny_ - 1; ++j) {
             residual_.psi_res = std::max(residual_.psi_res, std::abs((psi_(i-1, j) - 2.0 * psi_(i, j) + psi_(i+1, j)) / (dx_ * dx_) + (psi_(i, j-1) - 2.0 * psi_(i, j) + psi_(i, j+1))/(dy_ * dy_) + omega_(i, j)));
             tmp = 1. / Re_ * (omega_(i+1, j) - 2.0 * omega_(i, j) + omega_(i-1, j)) / (dx_ * dx_) + 1. / Re_ * (omega_(i, j+1) - 2.0 * omega_(i, j) + omega_(i, j-1)) / (dy_ * dy_);
-            tmp -= arakawaJacobian(i, j);
+            tmp -= jacobian(i, j);
             tmp -= OmegaForcing(i * dx_, j * dy_, cfg_.lx, cfg_.ly);
             residual_.omega_res = std::max(residual_.omega_res, std::abs(tmp));
         }
@@ -392,8 +409,8 @@ void Solver::save(const std::string& directory) const
 {
     std::filesystem::create_directories(directory);
 
-    std::string filename = directory + "/result_" + std::to_string(step_) + ".csv";
-    std::ofstream out(filename);
+    std::string filename = directory + "/result_" + std::to_string(step_) + ".bin";
+    std::ofstream out(filename, std::ios::binary);
 
     if (!out.is_open())
     {
@@ -401,23 +418,49 @@ void Solver::save(const std::string& directory) const
         return;
     }
 
-    out << "x,y,psi,omega,u,v\n";
+    const char magic[8] = {'A', 'L', 'E', 'X', 'B', 'I', 'N', '1'};
+    const std::uint32_t nx = static_cast<std::uint32_t>(nx_);
+    const std::uint32_t ny = static_cast<std::uint32_t>(ny_);
+    const std::uint64_t step = static_cast<std::uint64_t>(step_);
+    const double pseudo_time = (step_ + 1) * dt_;
+    const double re = static_cast<double>(Re_);
 
-    for (int i = 0; i < nx_; ++i)
-    {
-        for (int j = 0; j < ny_; ++j)
+    out.write(magic, sizeof(magic));
+    out.write(reinterpret_cast<const char*>(&nx), sizeof(nx));
+    out.write(reinterpret_cast<const char*>(&ny), sizeof(ny));
+    out.write(reinterpret_cast<const char*>(&step), sizeof(step));
+    out.write(reinterpret_cast<const char*>(&pseudo_time), sizeof(pseudo_time));
+    out.write(reinterpret_cast<const char*>(&cfg_.lx), sizeof(cfg_.lx));
+    out.write(reinterpret_cast<const char*>(&cfg_.ly), sizeof(cfg_.ly));
+    out.write(reinterpret_cast<const char*>(&re), sizeof(re));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.left.u), sizeof(cfg_.bc.left.u));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.left.v), sizeof(cfg_.bc.left.v));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.right.u), sizeof(cfg_.bc.right.u));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.right.v), sizeof(cfg_.bc.right.v));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.bottom.u), sizeof(cfg_.bc.bottom.u));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.bottom.v), sizeof(cfg_.bc.bottom.v));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.top.u), sizeof(cfg_.bc.top.u));
+    out.write(reinterpret_cast<const char*>(&cfg_.bc.top.v), sizeof(cfg_.bc.top.v));
+
+    const auto write_matrix = [&](const Eigen::MatrixXd& matrix) {
+        for (int i = 0; i < nx_; ++i)
         {
-            const double x = i * dx_;
-            const double y = j * dy_;
-
-            out << std::fixed << std::setprecision(15)
-                << x << ","
-                << y << ","
-                << psi_(i, j) << ","
-                << omega_(i, j) << ","
-                << u_(i, j) << ","
-                << v_(i, j) << "\n";
+            for (int j = 0; j < ny_; ++j)
+            {
+                const double value = matrix(i, j);
+                out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+            }
         }
+    };
+
+    write_matrix(psi_);
+    write_matrix(omega_);
+    write_matrix(u_);
+    write_matrix(v_);
+
+    if (!out.good())
+    {
+        std::cerr << "[Solver] Error: Failed while writing " << filename << "\n";
     }
 
     out.close();

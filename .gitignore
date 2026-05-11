@@ -54,17 +54,31 @@ dkms.conf
 # debug information files
 *.dwo
 
-**.csv
 .vscode/
 .venv/
 __pycache__
+__pycache__/
 alex/papers
-alex/data/results
+alex/data/results/
 alex/plots/frames
+alex/build/
+alex/linear_stability/filtered_results/
+alex/linear_stability/plots/frames/
+alex/linear_stability/videos/
 
-
+*.bin
 *.mp4
-*.csv
-*.png
-*.cluade
-*.plk
+
+# Torch cavity runs: keep source/configs, ignore heavy raw outputs.
+alex/torch_cavity_601/results/
+alex/torch_cavity_601/analysis/*/plots/frames/
+alex/torch_cavity_601/analysis/*/plots/videos/
+alex/torch_cavity_601/analysis/*/plots/residual_history.png
+
+# Final paper-ready cavity figures/tables may be committed.
+!alex/torch_cavity_601/analysis/
+!alex/torch_cavity_601/analysis/*/
+!alex/torch_cavity_601/analysis/*/profiles/
+!alex/torch_cavity_601/analysis/*/profiles/final_streamplot.png
+!alex/torch_cavity_601/analysis/*/profiles/final_profiles.png
+!alex/torch_cavity_601/analysis/*/profiles/vortex_summary.csv

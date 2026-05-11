@@ -8,6 +8,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import numpy as np
+import snapshot_io
 
 try:
     from tqdm import tqdm
@@ -19,7 +20,6 @@ plt.ioff()
 plt.rcParams["path.simplify"] = True
 plt.rcParams["agg.path.chunksize"] = 10000
 
-COL_IDX = {"psi": 2, "omega": 3, "u": 4, "v": 5}
 FRAME_KINDS = ("psi", "omega", "streamplot")
 
 
@@ -31,10 +31,10 @@ def step_sort_key(path):
     return (int(match.group(1)), base)
 
 
-def collect_csv_files(results_dir, snapshot_index=None):
+def collect_snapshot_files(results_dir, snapshot_index=None):
     if snapshot_index is None:
         return sorted(
-            glob.glob(os.path.join(results_dir, "result_*.csv")),
+            glob.glob(os.path.join(results_dir, "result_*.bin")),
             key=step_sort_key,
         )
 
@@ -42,60 +42,25 @@ def collect_csv_files(results_dir, snapshot_index=None):
     with open(snapshot_index, "r", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            raw_path = row.get("filtered_csv") or row.get("source_csv") or ""
+            raw_path = (
+                row.get("filtered_snapshot")
+                or row.get("source_snapshot")
+                or row.get("filtered_csv")
+                or row.get("source_csv")
+                or ""
+            )
             if not raw_path:
                 continue
-            csv_path = os.path.abspath(os.path.normpath(os.path.expanduser(raw_path)))
-            if os.path.exists(csv_path):
-                files.append(csv_path)
+            snapshot_path = os.path.abspath(os.path.normpath(os.path.expanduser(raw_path)))
+            if os.path.exists(snapshot_path):
+                files.append(snapshot_path)
 
     return sorted(files, key=step_sort_key)
 
 
-def read_rows(path):
-    rows = []
-    with open(path, "r", newline="") as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            rows.append(
-                (
-                    float(r["x"]),
-                    float(r["y"]),
-                    float(r["psi"]),
-                    float(r["omega"]),
-                    float(r["u"]),
-                    float(r["v"]),
-                )
-            )
-    if not rows:
-        raise RuntimeError(f"CSV is empty: {path}")
-    return rows
-
-
-def build_grids(rows):
-    xs = np.array(sorted({r[0] for r in rows}), dtype=float)
-    ys = np.array(sorted({r[1] for r in rows}), dtype=float)
-    nx = len(xs)
-    ny = len(ys)
-
-    x_to_i = {x: i for i, x in enumerate(xs)}
-    y_to_j = {y: j for j, y in enumerate(ys)}
-
-    grids = {
-        "psi": np.zeros((ny, nx), dtype=float),
-        "omega": np.zeros((ny, nx), dtype=float),
-        "u": np.zeros((ny, nx), dtype=float),
-        "v": np.zeros((ny, nx), dtype=float),
-    }
-
-    for r in rows:
-        i = x_to_i[r[0]]
-        j = y_to_j[r[1]]
-        grids["psi"][j, i] = r[COL_IDX["psi"]]
-        grids["omega"][j, i] = r[COL_IDX["omega"]]
-        grids["u"][j, i] = r[COL_IDX["u"]]
-        grids["v"][j, i] = r[COL_IDX["v"]]
-
+def load_grids(path):
+    xs, ys, fields_xy = snapshot_io.load_snapshot(path)
+    grids = {name: values.T for name, values in fields_xy.items()}
     return grids, xs, ys
 
 
@@ -118,9 +83,8 @@ def increasing_levels(vmin, vmax, n_levels=31):
     return np.linspace(vmin, vmax, n_levels)
 
 
-def scan_file_ranges(csv_path):
-    rows = read_rows(csv_path)
-    grids, _, _ = build_grids(rows)
+def scan_file_ranges(snapshot_path):
+    grids, _, _ = load_grids(snapshot_path)
     speed = np.hypot(grids["u"], grids["v"])
     return {
         "psi_min": float(np.min(grids["psi"])),
@@ -165,6 +129,30 @@ def build_frame_stats(grids, xs, ys, plot_scale=None):
         "arrow_factor": 0.075 * domain_span / speed_max,
         "quiver_scale": 1.0,
     }
+
+
+def mark_vortex_centers(ax, grids, xs, ys):
+    psi = grids.get("psi")
+    if psi is None or psi.shape[0] < 3 or psi.shape[1] < 3:
+        return
+
+    inner = psi[1:-1, 1:-1]
+    min_j, min_i = np.unravel_index(int(np.argmin(inner)), inner.shape)
+    max_j, max_i = np.unravel_index(int(np.argmax(inner)), inner.shape)
+    seen = set()
+    for i, j in ((min_i + 1, min_j + 1), (max_i + 1, max_j + 1)):
+        if (i, j) in seen:
+            continue
+        seen.add((i, j))
+        ax.scatter(
+            [xs[i]],
+            [ys[j]],
+            marker="x",
+            s=70,
+            linewidths=1.8,
+            color="#ffeb3b",
+            zorder=8,
+        )
 
 
 def style_axes(ax, title, xs, ys):
@@ -223,6 +211,7 @@ def build_scalar_frame_with_quiver(
             scale=stats["quiver_scale"],
             alpha=0.9,
         )
+        mark_vortex_centers(ax, grids, xs_plot, ys_plot)
         fig.colorbar(contourf, ax=ax, label=colorbar_label)
         style_axes(ax, f"{title}, {base}", xs_plot, ys_plot)
         save_figure(fig, out_png)
@@ -264,6 +253,7 @@ def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
             arrowsize=1.0,
         )
         stream.arrows.set_color("white")
+        mark_vortex_centers(ax, grids, xs_plot, ys_plot)
         fig.colorbar(bg, ax=ax, label="|u|")
         style_axes(ax, f"Streamplot, {base}", xs_plot, ys_plot)
         save_figure(fig, out_png)
@@ -272,11 +262,10 @@ def build_streamplot_frame(grids, xs, ys, out_png, stats, base):
 
 
 def make_frame_set_task(task):
-    csv_path, frames_dir, plot_scale = task
-    rows = read_rows(csv_path)
-    grids, xs, ys = build_grids(rows)
+    snapshot_path, frames_dir, plot_scale = task
+    grids, xs, ys = load_grids(snapshot_path)
     stats = build_frame_stats(grids, xs, ys, plot_scale)
-    base = os.path.splitext(os.path.basename(csv_path))[0]
+    base = os.path.splitext(os.path.basename(snapshot_path))[0]
     outputs = {}
 
     psi_png = os.path.join(frames_dir, f"{base}_psi.png")
@@ -384,13 +373,13 @@ def build_residual_plot(results_dir, plot_root):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Render Alex CSV fields to PNG frames.")
+    parser = argparse.ArgumentParser(description="Render Alex binary snapshot fields to PNG frames.")
     parser.add_argument("results_dir")
     parser.add_argument("frames_dir")
     parser.add_argument(
         "--snapshot-index",
         default=None,
-        help="Optional CSV index with filtered_csv/source_csv column; prevents stale files from old runs.",
+        help="Optional CSV index with filtered_snapshot/source_snapshot columns; prevents stale files from old runs.",
     )
     args = parser.parse_args()
 
@@ -406,17 +395,17 @@ def main():
     os.makedirs(frames_dir, exist_ok=True)
     os.makedirs(plot_root, exist_ok=True)
 
-    csv_files = collect_csv_files(results_dir, snapshot_index)
+    snapshot_files = collect_snapshot_files(results_dir, snapshot_index)
     if snapshot_index is not None:
         print(f"[plot] Using snapshot index: {snapshot_index}")
-    if not csv_files:
-        raise RuntimeError(f"No result_*.csv found in {results_dir}")
+    if not snapshot_files:
+        raise RuntimeError(f"No result_*.bin found in {results_dir}")
 
-    workers = max(1, min(os.cpu_count() or 1, len(csv_files)))
+    workers = max(1, min(os.cpu_count() or 1, len(snapshot_files)))
 
-    print(f"[plot] Scanning shared scale from {len(csv_files)} CSV files")
+    print(f"[plot] Scanning shared scale from {len(snapshot_files)} snapshots")
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(scan_file_ranges, csv_path) for csv_path in csv_files]
+        futures = [executor.submit(scan_file_ranges, snapshot_path) for snapshot_path in snapshot_files]
         ranges = []
         progress_total = len(futures)
         if tqdm is not None:
@@ -436,7 +425,7 @@ def main():
         f"speed=[0, {plot_scale['speed_limits'][1]:.6e}]"
     )
 
-    tasks = [(csv_path, frames_dir, plot_scale) for csv_path in csv_files]
+    tasks = [(snapshot_path, frames_dir, plot_scale) for snapshot_path in snapshot_files]
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(make_frame_set_task, task) for task in tasks]

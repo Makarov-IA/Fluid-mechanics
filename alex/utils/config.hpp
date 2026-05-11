@@ -41,6 +41,7 @@ struct Config
     double dt = -1.0;
     int Re = 100;
     double steady_tolerance = 1e-10;
+    bool use_arakawa = true;
 
     int save_every_step = 100;
     std::string save_dir = "data/results";
@@ -168,6 +169,10 @@ inline Config LoadConfigFromFile(const std::string& path)
             else if (key == "steady_tolerance")
             {
                 cfg.steady_tolerance = std::stod(value);
+            }
+            else if (key == "use_arakawa")
+            {
+                cfg.use_arakawa = ParseBool(value);
             }
             else if (key == "save_every_step")
             {

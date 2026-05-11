@@ -7,26 +7,14 @@ from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import snapshot_io
 
 matplotlib.use("Agg")
 
 
-def load_csv(path: Path) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
-    data = np.genfromtxt(path, delimiter=",", names=True)
-    if data.size == 0:
-        raise RuntimeError(f"CSV is empty: {path}")
-
-    xs = np.unique(data["x"])
-    ys = np.unique(data["y"])
-    nx, ny = xs.size, ys.size
-
-    fields: dict[str, np.ndarray] = {}
-    for name in data.dtype.names:
-        if name in ("x", "y"):
-            continue
-        # Alex writes x in the outer loop and y in the inner loop.
-        fields[name] = np.asarray(data[name], dtype=float).reshape(nx, ny).T
-
+def load_snapshot(path: Path) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+    xs, ys, fields_xy = snapshot_io.load_snapshot(path)
+    fields = {name: values.T for name, values in fields_xy.items()}
     return xs, ys, fields
 
 
@@ -35,13 +23,35 @@ def velocities_from_psi(psi: np.ndarray, xs: np.ndarray, ys: np.ndarray) -> tupl
     return dpsi_dy, -dpsi_dx
 
 
-def default_output_path(csv_path: Path) -> Path:
-    return csv_path.with_name(f"{csv_path.stem}_streamplot.png")
+def mark_vortex_centers(ax, psi: np.ndarray, xs: np.ndarray, ys: np.ndarray) -> None:
+    if psi.shape[0] < 3 or psi.shape[1] < 3:
+        return
+    inner = psi[1:-1, 1:-1]
+    min_j, min_i = np.unravel_index(int(np.argmin(inner)), inner.shape)
+    max_j, max_i = np.unravel_index(int(np.argmax(inner)), inner.shape)
+    seen = set()
+    for i, j in ((min_i + 1, min_j + 1), (max_i + 1, max_j + 1)):
+        if (i, j) in seen:
+            continue
+        seen.add((i, j))
+        ax.scatter(
+            [xs[i]],
+            [ys[j]],
+            marker="x",
+            s=72,
+            linewidths=1.9,
+            color="#ffeb3b",
+            zorder=8,
+        )
+
+
+def default_output_path(snapshot_path: Path) -> Path:
+    return snapshot_path.with_name(f"{snapshot_path.stem}_streamplot.png")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Render a streamplot from one Alex CSV file.")
-    parser.add_argument("csv", type=Path, help="Input CSV with columns x,y,psi,omega,u,v")
+    parser = argparse.ArgumentParser(description="Render a streamplot from one Alex binary snapshot.")
+    parser.add_argument("snapshot", type=Path, help="Input binary snapshot")
     parser.add_argument("-o", "--out", type=Path, default=None, help="Output PNG path")
     parser.add_argument("--density", type=float, default=1.6, help="Matplotlib streamplot density")
     parser.add_argument("--dpi", type=int, default=180, help="Output PNG DPI")
@@ -49,10 +59,10 @@ def main() -> None:
     parser.add_argument("--no-contours", action="store_true", help="Do not draw psi contours")
     args = parser.parse_args()
 
-    csv_path = args.csv.expanduser().resolve()
-    out_path = (args.out.expanduser().resolve() if args.out is not None else default_output_path(csv_path))
+    snapshot_path = args.snapshot.expanduser().resolve()
+    out_path = (args.out.expanduser().resolve() if args.out is not None else default_output_path(snapshot_path))
 
-    xs, ys, fields = load_csv(csv_path)
+    xs, ys, fields = load_snapshot(snapshot_path)
     if "u" in fields and "v" in fields:
         u = fields["u"]
         v = fields["v"]
@@ -80,12 +90,14 @@ def main() -> None:
     )
     stream.arrows.set_color("white")
 
-    if not args.no_contours and "psi" in fields:
+    if "psi" in fields:
         psi = fields["psi"]
-        levels = np.linspace(float(psi.min()), float(psi.max()), 21)
-        ax.contour(x_grid, y_grid, psi, levels=levels, colors="white", linewidths=0.35, alpha=0.55)
+        if not args.no_contours:
+            levels = np.linspace(float(psi.min()), float(psi.max()), 21)
+            ax.contour(x_grid, y_grid, psi, levels=levels, colors="white", linewidths=0.35, alpha=0.55)
+        mark_vortex_centers(ax, psi, xs, ys)
 
-    ax.set_title(args.title or csv_path.stem)
+    ax.set_title(args.title or snapshot_path.stem)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_aspect("equal")

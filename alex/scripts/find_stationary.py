@@ -11,10 +11,12 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
+import snapshot_io
+
 matplotlib.use("Agg")
 
 
-RESULT_RE = re.compile(r"result_(\d+)\.csv$")
+RESULT_RE = re.compile(r"result_(\d+)\.bin$")
 
 
 def parse_config(path: Path) -> dict[str, str]:
@@ -32,7 +34,7 @@ def parse_config(path: Path) -> dict[str, str]:
 
 def collect_result_files(results_dir: Path, skip_newest: int) -> list[tuple[int, Path]]:
     files: list[tuple[int, Path]] = []
-    for path in results_dir.glob("result_*.csv"):
+    for path in results_dir.glob("result_*.bin"):
         match = RESULT_RE.match(path.name)
         if match is None:
             continue
@@ -51,7 +53,13 @@ def collect_result_files_from_index(index_csv: Path, skip_newest: int) -> list[t
     with index_csv.open("r", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            raw_path = row.get("filtered_csv") or row.get("source_csv") or ""
+            raw_path = (
+                row.get("filtered_snapshot")
+                or row.get("source_snapshot")
+                or row.get("filtered_csv")
+                or row.get("source_csv")
+                or ""
+            )
             if not raw_path:
                 continue
             path = Path(raw_path).expanduser().resolve()
@@ -95,29 +103,19 @@ def estimate_time(step: int, cfg: dict[str, str], residual_times: dict[int, floa
 
 
 def load_state(path: Path, field: str) -> np.ndarray:
+    snapshot = snapshot_io.read_snapshot(path)
     if field == "psi":
-        return np.loadtxt(path, delimiter=",", skiprows=1, usecols=(2,))
+        return snapshot.psi.reshape(-1)
     if field == "omega":
-        return np.loadtxt(path, delimiter=",", skiprows=1, usecols=(3,))
+        return snapshot.omega.reshape(-1)
     if field == "state":
-        values = np.loadtxt(path, delimiter=",", skiprows=1, usecols=(2, 3))
-        return values.reshape(-1)
+        return np.concatenate((snapshot.psi.reshape(-1), snapshot.omega.reshape(-1)))
     raise ValueError(f"Unknown field: {field}")
 
 
 def load_grid(path: Path) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
-    data = np.genfromtxt(path, delimiter=",", names=True)
-    xs = np.unique(data["x"])
-    ys = np.unique(data["y"])
-    nx, ny = xs.size, ys.size
-
-    fields: dict[str, np.ndarray] = {}
-    for name in data.dtype.names:
-        if name in ("x", "y"):
-            continue
-        # Alex writes x in the outer loop and y in the inner loop.
-        fields[name] = np.asarray(data[name], dtype=float).reshape(nx, ny).T
-
+    xs, ys, fields_xy = snapshot_io.load_snapshot(path)
+    fields = {name: values.T for name, values in fields_xy.items()}
     return xs, ys, fields
 
 
@@ -214,12 +212,12 @@ def plot_norm(path: Path, rows: list[dict[str, float | int]], field: str) -> Non
     plt.close(fig)
 
 
-def plot_streamplot(csv_path: Path, output_path: Path, title: str, density: float, dpi: int) -> None:
+def plot_streamplot(snapshot_path: Path, output_path: Path, title: str, density: float, dpi: int) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    xs, ys, fields = load_grid(csv_path)
+    xs, ys, fields = load_grid(snapshot_path)
 
     if "u" not in fields or "v" not in fields:
-        raise RuntimeError(f"Need u and v columns for streamplot: {csv_path}")
+        raise RuntimeError(f"Need u and v fields for streamplot: {snapshot_path}")
 
     u = fields["u"]
     v = fields["v"]
@@ -248,6 +246,23 @@ def plot_streamplot(csv_path: Path, output_path: Path, title: str, density: floa
         if psi_max > psi_min + 1e-14 * max(1.0, abs(psi_min), abs(psi_max)):
             levels = np.linspace(psi_min, psi_max, 21)
             ax.contour(x_grid, y_grid, psi, levels=levels, colors="white", linewidths=0.35, alpha=0.55)
+            inner = psi[1:-1, 1:-1]
+            min_j, min_i = np.unravel_index(int(np.argmin(inner)), inner.shape)
+            max_j, max_i = np.unravel_index(int(np.argmax(inner)), inner.shape)
+            seen = set()
+            for i, j in ((min_i + 1, min_j + 1), (max_i + 1, max_j + 1)):
+                if (i, j) in seen:
+                    continue
+                seen.add((i, j))
+                ax.scatter(
+                    [xs[i]],
+                    [ys[j]],
+                    marker="x",
+                    s=72,
+                    linewidths=1.9,
+                    color="#ffeb3b",
+                    zorder=8,
+                )
 
     ax.set_title(title)
     ax.set_xlabel("x")
@@ -262,12 +277,12 @@ def plot_streamplot(csv_path: Path, output_path: Path, title: str, density: floa
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Plot norm of difference between consecutive Alex CSV snapshots.")
+    parser = argparse.ArgumentParser(description="Plot norm of difference between consecutive Alex binary snapshots.")
     parser.add_argument("--results-dir", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--metrics-csv", type=Path, required=True)
     parser.add_argument("--plot-png", type=Path, required=True)
-    parser.add_argument("--stationary-csv", type=Path, required=True)
+    parser.add_argument("--stationary-snapshot", type=Path, required=True)
     parser.add_argument("--streamplot-png", type=Path, required=True)
     parser.add_argument("--snapshot-index", type=Path, default=None)
     parser.add_argument("--field", choices=("state", "psi", "omega"), default="state")
@@ -280,7 +295,7 @@ def main() -> None:
     config_path = args.config.expanduser().resolve()
     metrics_csv = args.metrics_csv.expanduser().resolve()
     plot_png = args.plot_png.expanduser().resolve()
-    stationary_csv = args.stationary_csv.expanduser().resolve()
+    stationary_snapshot = args.stationary_snapshot.expanduser().resolve()
     streamplot_png = args.streamplot_png.expanduser().resolve()
     snapshot_index = args.snapshot_index.expanduser().resolve() if args.snapshot_index is not None else None
 
@@ -292,7 +307,7 @@ def main() -> None:
     else:
         files = collect_result_files(results_dir, args.skip_newest)
     if len(files) < 2:
-        raise RuntimeError(f"Need at least two result_*.csv files in {results_dir}")
+        raise RuntimeError(f"Need at least two result_*.bin files in {results_dir}")
 
     rows = compute_differences(files, cfg, residual_times, args.field)
     if not rows:
@@ -306,10 +321,10 @@ def main() -> None:
     file_by_step = {step: path for step, path in files}
     best_source = file_by_step[best_step]
 
-    stationary_csv.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(best_source, stationary_csv)
+    stationary_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(best_source, stationary_snapshot)
     plot_streamplot(
-        stationary_csv,
+        stationary_snapshot,
         streamplot_png,
         title=f"Stationary candidate, step={best_step}, t={float(best['time']):.6g}",
         density=args.stream_density,
@@ -319,7 +334,7 @@ def main() -> None:
     print(f"[stationary] snapshots used: {len(files)}")
     print(f"[stationary] metrics: {metrics_csv}")
     print(f"[stationary] plot: {plot_png}")
-    print(f"[stationary] saved csv: {stationary_csv}")
+    print(f"[stationary] saved snapshot: {stationary_snapshot}")
     print(f"[stationary] streamplot: {streamplot_png}")
     print(
         "[stationary] min rel_l2: "

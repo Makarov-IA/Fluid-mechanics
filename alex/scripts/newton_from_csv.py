@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+
+import snapshot_io
 
 
 @dataclass(frozen=True)
@@ -95,55 +99,41 @@ def cfg_float(cfg: dict[str, str], key: str, default: float = 0.0) -> float:
     return float(cfg.get(key, default))
 
 
-def load_csv(path: Path) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
-    data = np.genfromtxt(path, delimiter=",", names=True)
-    if data.size == 0:
-        raise RuntimeError(f"CSV is empty: {path}")
+def load_snapshot(path: Path) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+    return snapshot_io.load_snapshot(path)
 
-    xs = np.unique(data["x"])
-    ys = np.unique(data["y"])
-    nx, ny = xs.size, ys.size
 
-    fields: dict[str, np.ndarray] = {}
-    for name in data.dtype.names:
-        if name in ("x", "y"):
-            continue
-        # Keep the same orientation as Solver::psi_(i,j): shape is (nx, ny).
-        fields[name] = np.asarray(data[name], dtype=float).reshape(nx, ny)
+def forcing_library_path() -> Path:
+    root_dir = Path(__file__).resolve().parents[1]
+    candidates = [
+        root_dir / "build" / "libomega_forcing.dylib",
+        root_dir / "build" / "libomega_forcing.so",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise RuntimeError(
+        "Cannot find forcing shared library. Run `make -C alex all` first. "
+        f"Checked: {', '.join(str(path) for path in candidates)}"
+    )
 
-    return xs, ys, fields
+
+@lru_cache(maxsize=1)
+def omega_forcing_symbol():
+    library = ctypes.CDLL(str(forcing_library_path()))
+    symbol = library.OmegaForcing
+    symbol.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double]
+    symbol.restype = ctypes.c_double
+    return symbol
 
 
 def omega_forcing(problem: Problem) -> np.ndarray:
-    x = problem.xs[1:-1, None]
-    y = problem.ys[None, 1:-1]
-    lx = problem.lx
-    ly = problem.ly
-    pi = math.pi
-
-    a22 = -19.0 * ly / (2.0 * pi)
-    a42 = -6.0 * ly / (2.0 * pi)
-    a62 = 7.0 * ly / (2.0 * pi)
-    a24 = 14.0 * ly / (4.0 * pi)
-    a13 = a22 / 50.0
-    a31 = a22 / 50.0
-
-    def mode_dy(m: int, n: int, a_mn: float) -> np.ndarray:
-        return (
-            -a_mn
-            * (pi * float(n) / ly)
-            * np.sin(pi * float(m) * x / lx)
-            * np.sin(pi * float(n) * y / ly)
-        )
-
     forcing = np.zeros((problem.nx - 2, problem.ny - 2), dtype=float)
-    forcing += mode_dy(2, 2, a22)
-    forcing += mode_dy(4, 2, a42)
-    forcing += mode_dy(6, 2, a62)
-    forcing += mode_dy(2, 4, a24)
-    forcing += mode_dy(1, 3, a13)
-    forcing += mode_dy(3, 1, a31)
-    return -forcing
+    omega_forcing_at = omega_forcing_symbol()
+    for i, x in enumerate(problem.xs[1:-1]):
+        for j, y in enumerate(problem.ys[1:-1]):
+            forcing[i, j] = omega_forcing_at(float(x), float(y), problem.lx, problem.ly)
+    return forcing
 
 
 def pack(psi: np.ndarray, omega: np.ndarray) -> np.ndarray:
@@ -394,9 +384,9 @@ def validate_uniform_grid(problem: Problem) -> None:
     if problem.nx < 3 or problem.ny < 3:
         raise RuntimeError("Need at least 3 grid points in each direction")
     if not np.allclose(np.diff(problem.xs), problem.dx, rtol=1e-10, atol=1e-14):
-        raise RuntimeError("CSV x grid is not uniform")
+        raise RuntimeError("Snapshot x grid is not uniform")
     if not np.allclose(np.diff(problem.ys), problem.dy, rtol=1e-10, atol=1e-14):
-        raise RuntimeError("CSV y grid is not uniform")
+        raise RuntimeError("Snapshot y grid is not uniform")
 
 
 def verify_jacobian_vector_product(
@@ -422,30 +412,38 @@ def verify_jacobian_vector_product(
     )
 
 
-def save_csv(path: Path, problem: Problem, psi: np.ndarray, omega: np.ndarray) -> None:
+def save_snapshot(path: Path, problem: Problem, psi: np.ndarray, omega: np.ndarray, step: int = 0, time: float = 0.0) -> None:
     u, v = velocities(problem, psi)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as f:
-        f.write("x,y,psi,omega,u,v\n")
-        for i, x in enumerate(problem.xs):
-            for j, y in enumerate(problem.ys):
-                f.write(
-                    f"{x:.15g},{y:.15g},"
-                    f"{psi[i, j]:.15g},{omega[i, j]:.15g},"
-                    f"{u[i, j]:.15g},{v[i, j]:.15g}\n"
-                )
+    snapshot_io.write_snapshot(
+        path,
+        problem.xs,
+        problem.ys,
+        psi,
+        omega,
+        u,
+        v,
+        step=step,
+        time=time,
+        re=problem.re,
+        bc=snapshot_io.BoundaryConditions(
+            left=snapshot_io.WallVelocity(problem.bc.left.u, problem.bc.left.v),
+            right=snapshot_io.WallVelocity(problem.bc.right.u, problem.bc.right.v),
+            bottom=snapshot_io.WallVelocity(problem.bc.bottom.u, problem.bc.bottom.v),
+            top=snapshot_io.WallVelocity(problem.bc.top.u, problem.bc.top.v),
+        ),
+    )
 
 
 def default_output(input_csv: Path) -> Path:
-    return input_csv.with_name(f"{input_csv.stem}_newton_equilibrium.csv")
+    return input_csv.with_name(f"{input_csv.stem}_newton_equilibrium.bin")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Matrix-free Newton-Krylov solve of Alex's steady psi-omega equations from one CSV state."
+        description="Matrix-free Newton-Krylov solve of Alex's steady psi-omega equations from one binary snapshot."
     )
-    parser.add_argument("csv", type=Path, help="Initial CSV state")
-    parser.add_argument("-o", "--out", type=Path, default=None, help="Output equilibrium CSV")
+    parser.add_argument("csv", type=Path, help="Initial binary snapshot")
+    parser.add_argument("-o", "--out", type=Path, default=None, help="Output equilibrium binary snapshot")
     parser.add_argument("--config", type=Path, default=Path("alex/configs/config.cfg"), help="Alex config for Re and wall velocities")
     parser.add_argument("--re", type=float, default=None, help="Override Re from config")
     parser.add_argument("--max-newton", type=int, default=10)
@@ -466,9 +464,9 @@ def main() -> None:
     output_csv = args.out.expanduser().resolve() if args.out is not None else default_output(input_csv)
     cfg = parse_config(args.config.expanduser().resolve())
 
-    xs, ys, fields = load_csv(input_csv)
+    xs, ys, fields = load_snapshot(input_csv)
     if "psi" not in fields or "omega" not in fields:
-        raise RuntimeError("Input CSV must contain psi and omega columns")
+        raise RuntimeError("Input snapshot must contain psi and omega fields")
 
     bc = BoundaryConditions(
         left=WallVelocity(cfg_float(cfg, "bc.left.u"), cfg_float(cfg, "bc.left.v")),
@@ -551,7 +549,7 @@ def main() -> None:
             break
 
     psi, omega = unpack(z, problem)
-    save_csv(output_csv, problem, psi, omega)
+    save_snapshot(output_csv, problem, psi, omega)
     print(f"[newton] saved: {output_csv}")
 
 

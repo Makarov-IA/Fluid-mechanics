@@ -17,7 +17,7 @@ import newton_from_csv as steady
 
 matplotlib.use("Agg")
 
-RESULT_RE = re.compile(r"result_(\d+)\.csv$")
+RESULT_RE = re.compile(r"result_(\d+)\.bin$")
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,12 @@ class SavedMode:
     eigenvalue: complex
     psi: np.ndarray
     omega: np.ndarray
+
+
+@dataclass(frozen=True)
+class ProjectionBasis:
+    labels: list[str]
+    vectors: np.ndarray
 
 
 class LinearizedOmegaOperator:
@@ -68,11 +74,11 @@ class LinearizedOmegaOperator:
         return rhs.reshape(-1)
 
 
-def load_problem(csv_path: Path, config_path: Path, re_override: float | None):
+def load_problem(snapshot_path: Path, config_path: Path, re_override: float | None):
     cfg = steady.parse_config(config_path)
-    xs, ys, fields = steady.load_csv(csv_path)
+    xs, ys, fields = steady.load_snapshot(snapshot_path)
     if "psi" not in fields or "omega" not in fields:
-        raise RuntimeError("Input CSV must contain psi and omega columns")
+        raise RuntimeError("Input snapshot must contain psi and omega fields")
 
     bc = steady.BoundaryConditions(
         left=steady.WallVelocity(steady.cfg_float(cfg, "bc.left.u"), steady.cfg_float(cfg, "bc.left.v")),
@@ -296,13 +302,27 @@ def load_saved_unstable_modes(out_dir: Path, problem: steady.Problem, max_modes:
     return modes
 
 
-def save_csv(path: Path, problem: steady.Problem, psi: np.ndarray, omega: np.ndarray) -> None:
-    steady.save_csv(path, problem, np.asarray(psi, dtype=float), np.asarray(omega, dtype=float))
+def save_snapshot(
+    path: Path,
+    problem: steady.Problem,
+    psi: np.ndarray,
+    omega: np.ndarray,
+    step: int = 0,
+    time: float = 0.0,
+) -> None:
+    steady.save_snapshot(
+        path,
+        problem,
+        np.asarray(psi, dtype=float),
+        np.asarray(omega, dtype=float),
+        step=step,
+        time=time,
+    )
 
 
 def collect_result_files(results_dir: Path, limit: int | None) -> list[Path]:
     files: list[tuple[int, Path]] = []
-    for path in results_dir.glob("result_*.csv"):
+    for path in results_dir.glob("result_*.bin"):
         match = RESULT_RE.match(path.name)
         if match is None:
             continue
@@ -372,36 +392,118 @@ def normalized_complex_mode(operator: LinearizedOmegaOperator, eta_vec: np.ndarr
     return mode / scale
 
 
-def evolved_real_mode(
-    operator: LinearizedOmegaOperator,
-    eta_vec: np.ndarray,
-    eigenvalue: complex,
-    time: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    evolved_eta_vec = np.exp(eigenvalue * time) * eta_vec
-    phi, eta = operator.full_fields_from_eta(evolved_eta_vec)
-    return np.real(phi), np.real(eta)
+def pack_real_state(problem: steady.Problem, psi: np.ndarray, omega: np.ndarray) -> np.ndarray:
+    return np.concatenate(
+        (
+            np.asarray(psi[1:-1, 1:-1], dtype=float).reshape(-1),
+            np.asarray(omega[1:-1, 1:-1], dtype=float).reshape(-1),
+        )
+    )
 
 
-def build_unstable_modes(
+def unpack_real_state(problem: steady.Problem, state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    ni = problem.nx - 2
+    nj = problem.ny - 2
+    n = ni * nj
+    psi = np.zeros((problem.nx, problem.ny), dtype=float)
+    omega = np.zeros((problem.nx, problem.ny), dtype=float)
+    psi[1:-1, 1:-1] = state[:n].reshape(ni, nj)
+    omega[1:-1, 1:-1] = state[n:].reshape(ni, nj)
+    return psi, omega
+
+
+def orthonormalize_real_vectors(
+    candidates: list[tuple[str, np.ndarray]],
+    rel_tol: float = 1e-10,
+) -> ProjectionBasis:
+    basis_labels: list[str] = []
+    basis_vectors: list[np.ndarray] = []
+    largest_norm = max((float(np.linalg.norm(vec)) for _, vec in candidates), default=0.0)
+    drop_tol = rel_tol * max(largest_norm, 1.0)
+
+    for label, candidate in candidates:
+        vec = np.asarray(candidate, dtype=float).copy()
+        for basis in basis_vectors:
+            vec -= float(np.dot(vec, basis)) * basis
+        for basis in basis_vectors:
+            vec -= float(np.dot(vec, basis)) * basis
+
+        norm = float(np.linalg.norm(vec))
+        if norm <= drop_tol:
+            continue
+        basis_labels.append(label)
+        basis_vectors.append(vec / norm)
+
+    if not basis_vectors:
+        return ProjectionBasis(labels=[], vectors=np.zeros((0, 0), dtype=float))
+
+    return ProjectionBasis(labels=basis_labels, vectors=np.vstack(basis_vectors))
+
+
+def project_onto_basis(state: np.ndarray, basis: ProjectionBasis) -> tuple[np.ndarray, np.ndarray]:
+    if basis.vectors.size == 0:
+        return np.zeros_like(state), np.zeros(0, dtype=float)
+    coefficients = basis.vectors @ state
+    projection = coefficients @ basis.vectors
+    return projection, coefficients
+
+
+def build_unstable_projection_basis(
     operator: LinearizedOmegaOperator,
     eigenvectors: np.ndarray,
     unstable: list[EigenResult],
     max_modes: int,
-) -> list[tuple[EigenResult, np.ndarray]]:
-    modes: list[tuple[EigenResult, np.ndarray]] = []
+) -> ProjectionBasis:
+    candidates: list[tuple[str, np.ndarray]] = []
     for result in unstable[:max_modes]:
-        modes.append((result, normalized_complex_mode(operator, eigenvectors[:, result.index])))
-    return modes
+        mode_vec = normalized_complex_mode(operator, eigenvectors[:, result.index])
+        phi, eta = operator.full_fields_from_eta(mode_vec)
+        mode_state = np.concatenate(
+            (
+                phi[1:-1, 1:-1].reshape(-1),
+                eta[1:-1, 1:-1].reshape(-1),
+            )
+        )
+        candidates.append((f"eig_{result.index:03d}_real", np.real(mode_state)))
+        candidates.append((f"eig_{result.index:03d}_imag", np.imag(mode_state)))
+
+    basis = orthonormalize_real_vectors(candidates)
+    print(
+        "[stability] projection basis: "
+        f"{len(basis.labels)} real vectors from {min(len(unstable), max_modes)} unstable eigenpairs",
+        flush=True,
+    )
+    return basis
 
 
-def collect_plot_limits(csv_paths: list[Path]) -> tuple[float, float, float]:
+def build_saved_projection_basis(modes: list[SavedMode]) -> ProjectionBasis:
+    candidates: list[tuple[str, np.ndarray]] = []
+    for mode in modes:
+        mode_state = np.concatenate(
+            (
+                mode.psi[1:-1, 1:-1].reshape(-1),
+                mode.omega[1:-1, 1:-1].reshape(-1),
+            )
+        )
+        candidates.append((f"{mode.label}_real", np.real(mode_state)))
+        candidates.append((f"{mode.label}_imag", np.imag(mode_state)))
+
+    basis = orthonormalize_real_vectors(candidates)
+    print(
+        "[stability] projection basis from saved modes: "
+        f"{len(basis.labels)} real vectors from {len(modes)} saved modes",
+        flush=True,
+    )
+    return basis
+
+
+def collect_plot_limits(snapshot_paths: list[Path]) -> tuple[float, float, float]:
     psi_min = math.inf
     psi_max = -math.inf
     speed_max = 0.0
 
-    for idx, csv_path in enumerate(csv_paths):
-        _, _, fields = steady.load_csv(csv_path)
+    for idx, snapshot_path in enumerate(snapshot_paths):
+        _, _, fields = steady.load_snapshot(snapshot_path)
         psi = fields["psi"]
         u = fields["u"]
         v = fields["v"]
@@ -409,23 +511,23 @@ def collect_plot_limits(csv_paths: list[Path]) -> tuple[float, float, float]:
         psi_min = min(psi_min, float(np.min(psi)))
         psi_max = max(psi_max, float(np.max(psi)))
         speed_max = max(speed_max, float(np.max(speed)))
-        if (idx + 1) % 100 == 0 or idx + 1 == len(csv_paths):
-            print(f"[stability] scanned plot limits {idx + 1}/{len(csv_paths)}", flush=True)
+        if (idx + 1) % 100 == 0 or idx + 1 == len(snapshot_paths):
+            print(f"[stability] scanned plot limits {idx + 1}/{len(snapshot_paths)}", flush=True)
 
-    if not csv_paths:
+    if not snapshot_paths:
         psi_min = 0.0
         psi_max = 0.0
     return psi_min, psi_max, max(speed_max, 1e-12)
 
 
 def plot_streamplot(
-    csv_path: Path,
+    snapshot_path: Path,
     output_path: Path,
     title: str,
     dpi: int,
     plot_limits: tuple[float, float, float] | None = None,
 ) -> None:
-    xs, ys, fields = steady.load_csv(csv_path)
+    xs, ys, fields = steady.load_snapshot(snapshot_path)
     psi = fields["psi"].T
     if "u" in fields and "v" in fields:
         u = fields["u"].T
@@ -466,6 +568,23 @@ def plot_streamplot(
     if psi_max > psi_min + 1e-14 * max(1.0, abs(psi_min), abs(psi_max)):
         levels = np.linspace(psi_min, psi_max, 21)
         ax.contour(x_grid, y_grid, psi, levels=levels, colors="white", linewidths=0.35, alpha=0.55)
+        inner = psi[1:-1, 1:-1]
+        min_j, min_i = np.unravel_index(int(np.argmin(inner)), inner.shape)
+        max_j, max_i = np.unravel_index(int(np.argmax(inner)), inner.shape)
+        seen = set()
+        for i, j in ((min_i + 1, min_j + 1), (max_i + 1, max_j + 1)):
+            if (i, j) in seen:
+                continue
+            seen.add((i, j))
+            ax.scatter(
+                [xs[i]],
+                [ys[j]],
+                marker="x",
+                s=72,
+                linewidths=1.9,
+                color="#ffeb3b",
+                zorder=8,
+            )
     ax.set_title(title)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
@@ -482,21 +601,23 @@ def subtract_unstable_modes_from_snapshots(
     out_dir: Path,
     problem: steady.Problem,
     operator: LinearizedOmegaOperator,
+    psi0: np.ndarray,
+    omega0: np.ndarray,
     unstable: list[EigenResult],
     eigenvectors: np.ndarray,
     snapshots_dir: Path,
     filtered_dir: Path,
     max_modes: int,
-    mode_amplitude: float,
     config: dict[str, str],
     limit: int | None,
     plot: bool,
     plot_dpi: int,
 ) -> None:
-    modes = build_unstable_modes(operator, eigenvectors, unstable, max_modes)
-    labels = [f"eig_{result.index:03d}" for result, _ in modes]
+    basis = build_unstable_projection_basis(operator, eigenvectors, unstable, max_modes)
+    labels = basis.labels
+    equilibrium_state = pack_real_state(problem, psi0, omega0)
     filtered_dir.mkdir(parents=True, exist_ok=True)
-    remove_matching_files(filtered_dir, "result_*.csv")
+    remove_matching_files(filtered_dir, "result_*.bin")
     plots_dir = out_dir / "filtered_streamplots"
     if plot:
         plots_dir.mkdir(parents=True, exist_ok=True)
@@ -510,11 +631,13 @@ def subtract_unstable_modes_from_snapshots(
         writer = csv.writer(f)
         writer.writerow(
             [
-                "source_csv",
-                "filtered_csv",
+                "source_snapshot",
+                "filtered_snapshot",
                 "time",
                 "removed_norm",
-                "mode_amplitude",
+                "projection_norm",
+                "basis_size",
+                "coefficients",
                 "modes",
                 "plot_png",
             ]
@@ -525,24 +648,20 @@ def subtract_unstable_modes_from_snapshots(
         print(f"[stability] filtering snapshots: {len(files)} files from {snapshots_dir}")
 
         for idx, source_csv in enumerate(files):
-            xs, ys, fields = steady.load_csv(source_csv)
+            xs, ys, fields = steady.load_snapshot(source_csv)
             if xs.size != problem.nx or ys.size != problem.ny:
                 raise RuntimeError(f"Snapshot grid differs from equilibrium grid: {source_csv}")
 
             time = estimate_snapshot_time(source_csv, config, snapshot_times)
-            remove_psi = np.zeros((problem.nx, problem.ny), dtype=float)
-            remove_omega = np.zeros((problem.nx, problem.ny), dtype=float)
-
-            for result, mode_vec in modes:
-                mode_psi, mode_omega = evolved_real_mode(operator, mode_vec, result.eigenvalue, time)
-                remove_psi += mode_amplitude * mode_psi
-                remove_omega += mode_amplitude * mode_omega
+            state = pack_real_state(problem, fields["psi"], fields["omega"])
+            projection_state, coefficients = project_onto_basis(state - equilibrium_state, basis)
+            remove_psi, remove_omega = unpack_real_state(problem, projection_state)
 
             filtered_psi = fields["psi"] - remove_psi
             filtered_omega = fields["omega"] - remove_omega
             steady.apply_thom_boundary(problem, filtered_psi, filtered_omega)
             filtered_csv = filtered_dir / source_csv.name
-            save_csv(filtered_csv, problem, filtered_psi, filtered_omega)
+            save_snapshot(filtered_csv, problem, filtered_psi, filtered_omega, step=snapshot_step(source_csv), time=time)
             filtered_csvs.append(filtered_csv)
 
             plot_png = ""
@@ -560,7 +679,9 @@ def subtract_unstable_modes_from_snapshots(
                     str(filtered_csv),
                     f"{time:.16e}",
                     f"{removed_norm:.16e}",
-                    f"{mode_amplitude:.16e}",
+                    f"{float(np.linalg.norm(projection_state)):.16e}",
+                    len(labels),
+                    ";".join(f"{value:.16e}" for value in coefficients),
                     ";".join(labels),
                     plot_png,
                 ]
@@ -589,18 +710,21 @@ def subtract_unstable_modes_from_snapshots(
 def subtract_saved_modes_from_snapshots(
     out_dir: Path,
     problem: steady.Problem,
+    psi0: np.ndarray,
+    omega0: np.ndarray,
     modes: list[SavedMode],
     snapshots_dir: Path,
     filtered_dir: Path,
-    mode_amplitude: float,
     config: dict[str, str],
     limit: int | None,
     plot: bool,
     plot_dpi: int,
 ) -> None:
-    labels = [mode.label for mode in modes]
+    basis = build_saved_projection_basis(modes)
+    labels = basis.labels
+    equilibrium_state = pack_real_state(problem, psi0, omega0)
     filtered_dir.mkdir(parents=True, exist_ok=True)
-    remove_matching_files(filtered_dir, "result_*.csv")
+    remove_matching_files(filtered_dir, "result_*.bin")
     plots_dir = out_dir / "filtered_streamplots"
     if plot:
         plots_dir.mkdir(parents=True, exist_ok=True)
@@ -614,11 +738,13 @@ def subtract_saved_modes_from_snapshots(
         writer = csv.writer(f)
         writer.writerow(
             [
-                "source_csv",
-                "filtered_csv",
+                "source_snapshot",
+                "filtered_snapshot",
                 "time",
                 "removed_norm",
-                "mode_amplitude",
+                "projection_norm",
+                "basis_size",
+                "coefficients",
                 "modes",
                 "plot_png",
             ]
@@ -629,24 +755,20 @@ def subtract_saved_modes_from_snapshots(
         print(f"[stability] filtering snapshots from saved modes: {len(files)} files from {snapshots_dir}")
 
         for idx, source_csv in enumerate(files):
-            xs, ys, fields = steady.load_csv(source_csv)
+            xs, ys, fields = steady.load_snapshot(source_csv)
             if xs.size != problem.nx or ys.size != problem.ny:
                 raise RuntimeError(f"Snapshot grid differs from equilibrium grid: {source_csv}")
 
             time = estimate_snapshot_time(source_csv, config, snapshot_times)
-            remove_psi = np.zeros((problem.nx, problem.ny), dtype=float)
-            remove_omega = np.zeros((problem.nx, problem.ny), dtype=float)
-
-            for mode in modes:
-                factor = np.exp(mode.eigenvalue * time)
-                remove_psi += mode_amplitude * np.real(factor * mode.psi)
-                remove_omega += mode_amplitude * np.real(factor * mode.omega)
+            state = pack_real_state(problem, fields["psi"], fields["omega"])
+            projection_state, coefficients = project_onto_basis(state - equilibrium_state, basis)
+            remove_psi, remove_omega = unpack_real_state(problem, projection_state)
 
             filtered_psi = fields["psi"] - remove_psi
             filtered_omega = fields["omega"] - remove_omega
             steady.apply_thom_boundary(problem, filtered_psi, filtered_omega)
             filtered_csv = filtered_dir / source_csv.name
-            save_csv(filtered_csv, problem, filtered_psi, filtered_omega)
+            save_snapshot(filtered_csv, problem, filtered_psi, filtered_omega, step=snapshot_step(source_csv), time=time)
             filtered_csvs.append(filtered_csv)
 
             plot_png = ""
@@ -664,7 +786,9 @@ def subtract_saved_modes_from_snapshots(
                     str(filtered_csv),
                     f"{time:.16e}",
                     f"{removed_norm:.16e}",
-                    f"{mode_amplitude:.16e}",
+                    f"{float(np.linalg.norm(projection_state)):.16e}",
+                    len(labels),
+                    ";".join(f"{value:.16e}" for value in coefficients),
                     ";".join(labels),
                     plot_png,
                 ]
@@ -692,7 +816,7 @@ def subtract_saved_modes_from_snapshots(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Matrix-free linear stability analysis around a Newton equilibrium.")
-    parser.add_argument("csv", type=Path, help="Equilibrium CSV with x,y,psi,omega,u,v")
+    parser.add_argument("csv", type=Path, help="Equilibrium binary snapshot")
     parser.add_argument("--config", type=Path, default=Path("alex/configs/config.cfg"))
     parser.add_argument("--out-dir", type=Path, default=Path("alex/linear_stability"))
     parser.add_argument("--re", type=float, default=None)
@@ -705,7 +829,6 @@ def main() -> None:
     parser.add_argument("--filtered-dir", type=Path, default=None)
     parser.add_argument("--snapshot-limit", type=int, default=None)
     parser.add_argument("--max-unstable-modes", type=int, default=8)
-    parser.add_argument("--mode-amplitude", type=float, default=1e-3)
     parser.add_argument("--filter-only", action="store_true")
     parser.add_argument("--no-plots", action="store_true")
     parser.add_argument("--plot-dpi", type=int, default=160)
@@ -739,10 +862,11 @@ def main() -> None:
         subtract_saved_modes_from_snapshots(
             out_dir,
             problem,
+            psi0,
+            omega0,
             modes,
             snapshots_dir=snapshots_dir,
             filtered_dir=filtered_dir,
-            mode_amplitude=args.mode_amplitude,
             config=config,
             limit=args.snapshot_limit,
             plot=not args.no_plots,
@@ -784,12 +908,13 @@ def main() -> None:
         out_dir,
         problem,
         operator,
+        psi0,
+        omega0,
         unstable,
         eigenvectors,
         snapshots_dir=snapshots_dir,
         filtered_dir=filtered_dir,
         max_modes=args.max_unstable_modes,
-        mode_amplitude=args.mode_amplitude,
         config=config,
         limit=args.snapshot_limit,
         plot=not args.no_plots,
