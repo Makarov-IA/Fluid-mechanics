@@ -39,6 +39,20 @@ alex/gpu/configs/
 alex/common/snapshot_io.py
 ```
 
+## Docs
+
+Математическая постановка:
+
+```text
+alex/docs/math_model.md
+```
+
+Сравнение CPU и GPU солверов:
+
+```text
+alex/docs/solver_comparison.md
+```
+
 ## RUN
 
 Все основные настройки задаются в одном файле:

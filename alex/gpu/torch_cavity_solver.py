@@ -215,7 +215,7 @@ def steady_residuals(psi: torch.Tensor, omega: torch.Tensor, cfg: Config, dx: fl
     lap_omega = laplacian(omega, dx, dy)
     jac = arakawa_jacobian(psi, omega, dx, dy) if cfg.use_arakawa else central_jacobian(psi, omega, dx, dy)
     psi_res = torch.max(torch.abs(lap_psi + omega[1:-1, 1:-1]))
-    omega_res = torch.max(torch.abs((1.0 / cfg.re) * lap_omega - jac))
+    omega_res = torch.max(torch.abs((1.0 / cfg.re) * lap_omega + jac))
     return float(psi_res.detach().cpu()), float(omega_res.detach().cpu())
 
 
@@ -292,7 +292,7 @@ def run(config_path: Path, output_dir: Path | None, device_name: str, dtype_name
             apply_thom_boundary(psi, omega, cfg, dx, dy)
 
             jac = arakawa_jacobian(psi, omega, dx, dy) if cfg.use_arakawa else central_jacobian(psi, omega, dx, dy)
-            rhs = (1.0 / cfg.re) * laplacian(omega, dx, dy) - jac
+            rhs = (1.0 / cfg.re) * laplacian(omega, dx, dy) + jac
             omega[1:-1, 1:-1] += cfg.dt * rhs
             apply_thom_boundary(psi, omega, cfg, dx, dy)
 
