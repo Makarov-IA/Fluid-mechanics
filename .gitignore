@@ -1,4 +1,4 @@
-# C / C++ build artifacts
+# C/C++
 *.d
 *.o
 *.ko
@@ -23,8 +23,6 @@
 *.i*86
 *.x86_64
 *.hex
-
-# Debug / compiler files
 *.dSYM/
 *.su
 *.idb
@@ -44,35 +42,43 @@ dkms.conf
 __pycache__/
 *.pyc
 
-# Build dirs
+# Build/generated
 alex/build/
 alex/cpu/build/
-
-# Old generated outputs
 alex/data/results/
 alex/plots/
-alex/linear_stability/filtered_results/
-alex/linear_stability/plots/frames/
-alex/linear_stability/videos/
+alex/papers
 
-# Heavy generated files by default
+# Heavy files
 *.bin
 
-# Generated animation frames: never commit
+# Never commit frames
 **/frames/
 **/frames/**
+**/frames/*.png
 
-# Result binaries
+# Results generated binaries
 alex/results/binaries/
 alex/results/linear_stability/*/filtered_binaries/
 
-# Allow result root structure
+# Allow result dirs only as needed
 !alex/results/
-!alex/results/**/
+!alex/results/figures/
+!alex/results/figures/*/
+!alex/results/videos/
+!alex/results/videos/*/
+!alex/results/tables/
+!alex/results/tables/*/
+!alex/results/stationary/
+!alex/results/stationary/**/
+!alex/results/newton/
+!alex/results/newton/**/
+!alex/results/linear_stability/
+!alex/results/linear_stability/**/
 
-# Allow paper-ready outputs
-!alex/results/figures/**/*.png
-!alex/results/videos/**/*.mp4
+# Allow selected result files
+!alex/results/figures/*/*.png
+!alex/results/videos/*/*.mp4
 !alex/results/tables/**/*.csv
 !alex/results/stationary/**/*.csv
 !alex/results/stationary/**/*.png
@@ -82,7 +88,6 @@ alex/results/linear_stability/*/filtered_binaries/
 !alex/results/linear_stability/**/*.png
 !alex/results/linear_stability/**/*.mp4
 
-# Final hard block for frames after allow-rules
+# Final hard block
 alex/results/**/frames/
 alex/results/**/frames/**
-**/frames/*.png
