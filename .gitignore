@@ -1,34 +1,22 @@
-# Prerequisites
+# C / C++ build artifacts
 *.d
-
-# Object files
 *.o
 *.ko
 *.obj
 *.elf
-
-# Linker output
 *.ilk
 *.map
 *.exp
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Libraries
 *.lib
 *.a
 *.la
 *.lo
-
-# Shared objects (inc. Windows DLLs)
 *.dll
 *.so
 *.so.*
 *.dylib
-
-# Executables
 *.exe
 *.out
 *.app
@@ -36,13 +24,12 @@
 *.x86_64
 *.hex
 
-# Debug files
+# Debug / compiler files
 *.dSYM/
 *.su
 *.idb
 *.pdb
-
-# Kernel Module Compile Results
+*.dwo
 *.mod*
 *.cmd
 .tmp_versions/
@@ -51,57 +38,51 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-# debug information files
-*.dwo
-
+# IDE / Python
 .vscode/
 .venv/
-__pycache__
 __pycache__/
-alex/papers
+*.pyc
+
+# Build dirs
 alex/build/
 alex/cpu/build/
+
+# Old generated outputs
 alex/data/results/
 alex/plots/
 alex/linear_stability/filtered_results/
 alex/linear_stability/plots/frames/
 alex/linear_stability/videos/
 
+# Heavy generated files by default
 *.bin
-*.mp4
 
-# Unified result layout.
+# Generated animation frames: never commit
+**/frames/
+**/frames/**
+
+# Result binaries
 alex/results/binaries/
-alex/results/figures/*/frames/
 alex/results/linear_stability/*/filtered_binaries/
-alex/results/linear_stability/*/filtered_figures/frames/
 
-# Paper-ready figures, videos, and CSV tables may be committed explicitly.
+# Allow result root structure
 !alex/results/
-!alex/results/binaries/
-!alex/results/binaries/.gitkeep
-!alex/results/figures/
-!alex/results/figures/**/
+!alex/results/**/
+
+# Allow paper-ready outputs
 !alex/results/figures/**/*.png
-!alex/results/videos/
-!alex/results/videos/**/
 !alex/results/videos/**/*.mp4
-!alex/results/tables/
-!alex/results/tables/**/
 !alex/results/tables/**/*.csv
-!alex/results/stationary/
-!alex/results/stationary/**/
-!alex/results/stationary/.gitkeep
 !alex/results/stationary/**/*.csv
 !alex/results/stationary/**/*.png
-!alex/results/newton/
-!alex/results/newton/**/
-!alex/results/newton/.gitkeep
 !alex/results/newton/**/*.csv
 !alex/results/newton/**/*.png
-!alex/results/linear_stability/
-!alex/results/linear_stability/**/
-!alex/results/linear_stability/.gitkeep
 !alex/results/linear_stability/**/*.csv
 !alex/results/linear_stability/**/*.png
 !alex/results/linear_stability/**/*.mp4
+
+# Final hard block for frames after allow-rules
+alex/results/**/frames/
+alex/results/**/frames/**
+**/frames/*.png
