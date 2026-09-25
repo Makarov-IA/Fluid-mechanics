@@ -96,6 +96,39 @@ class StokesMACLib:
             *ptrs,
         )
 
+    def set_linear_solver(
+        self,
+        method: str,
+        tol: float = 3e-15,
+        extrapolation: int = 3,
+        parallel: bool = True,
+    ) -> None:
+        """Select the per-step Stokes solver: 'direct' (LDL^T/LU) or 'fast'."""
+        kinds = {"direct": 0, "fast": 1}
+        if method not in kinds:
+            raise ValueError(f"Unknown linear solver method: {method!r}")
+        status = self._dll.stokes_mac_set_linear_solver_c(
+            self._handle,
+            ct.c_int(kinds[method]),
+            ct.c_double(tol),
+            ct.c_int(extrapolation),
+            ct.c_int(1 if parallel else 0),
+        )
+        if status == -1:
+            raise RuntimeError("The fast linear solver is available only on macOS builds")
+        if status != 0:
+            raise ValueError(f"Invalid linear solver settings (code {status})")
+
+    def linear_solver_stats(self) -> tuple[int, int, int]:
+        """Return (steps, total CG iterations, max CG iterations) of the fast solver."""
+        steps = ct.c_longlong(0)
+        iters = ct.c_longlong(0)
+        max_iters = ct.c_int(0)
+        self._dll.stokes_mac_linear_solver_stats_c(
+            self._handle, ct.byref(steps), ct.byref(iters), ct.byref(max_iters)
+        )
+        return steps.value, iters.value, max_iters.value
+
     def run_steps(self, t_start: float, n_steps: int) -> np.ndarray:
         """Run n_steps with zero body force. Returns max|div u| per step."""
         div_out = np.empty(n_steps, dtype=np.float64)
@@ -356,6 +389,23 @@ class StokesMACLib:
 
         dll.stokes_mac_free_c.argtypes = [ct.c_void_p]
         dll.stokes_mac_free_c.restype = None
+
+        dll.stokes_mac_set_linear_solver_c.argtypes = [
+            ct.c_void_p,
+            ct.c_int,
+            ct.c_double,
+            ct.c_int,
+            ct.c_int,
+        ]
+        dll.stokes_mac_set_linear_solver_c.restype = ct.c_int
+
+        dll.stokes_mac_linear_solver_stats_c.argtypes = [
+            ct.c_void_p,
+            ct.POINTER(ct.c_longlong),
+            ct.POINTER(ct.c_longlong),
+            ct.POINTER(ct.c_int),
+        ]
+        dll.stokes_mac_linear_solver_stats_c.restype = None
 
         dll.stokes_mac_run_steps_c.argtypes = [
             ct.c_void_p,

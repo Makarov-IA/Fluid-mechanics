@@ -6,11 +6,14 @@ CONFIG_GOALS := $(filter-out $(KNOWN_TARGETS),$(MAKECMDGOALS))
 CONFIG_GOAL := $(firstword $(CONFIG_GOALS))
 CONFIG ?= $(if $(CONFIG_GOAL),$(CONFIG_GOAL),config)
 CONFIG_ARG := --config "$(CONFIG)"
+SOLVER ?= $(if $(LINEAR_SOLVER),$(LINEAR_SOLVER),auto)
+# Accelerate's multithreaded triangular solves are slower than one thread here.
+export VECLIB_MAXIMUM_THREADS ?= 1
 
 .PHONY: $(KNOWN_TARGETS) $(CONFIG_GOALS)
 
 compile:
-	bash $(DIR)compile.sh
+	LINEAR_SOLVER="$(SOLVER)" bash $(DIR)compile.sh
 
 run:
 	cd $(DIR) && $(PYTHON) main.py --mode simulation $(CONFIG_ARG)

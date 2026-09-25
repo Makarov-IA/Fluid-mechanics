@@ -5,8 +5,8 @@ domain:
   ly: 0.5
 
 grid:
-  nx: 105
-  ny: 105
+  nx: 201
+  ny: 201
 
 physics:
   nu: 0.00384615384
@@ -24,15 +24,26 @@ forcing:
   fv: "0"
 
 run:
-  t_end: 20.0
-  n_steps: 200000
+  t_end: 40.0
+  n_steps: 150000
   video_fps: 30
   video_speed: 1
   save_velocity_change_plot: true
   fixed_time_state_t: 2.2
   convergence_tol: 1.0e-6
 
+# Per-step Stokes solve for `run` and `projected-run` (`steady` always uses direct).
+linear_solver:
+  # direct — sparse LDLᵀ factorisation (reference);
+  # fast   — Uzawa-PCG with exact separable velocity solves, same result up to
+  #          round-off, ~5× faster on 201×201 (macOS only).
+  method: fast
+  fast_tol: 3.0e-15        # stop when ||div u||₂ ≤ fast_tol · max|u| / min(dx, dy)
+  fast_extrapolation: 3    # pressure initial guess: polynomial order 0..3
+  fast_parallel: true      # solve u and v branches on two cores
+
 steady_solver:
+  initial_state_path: plots/run/fixed_time_state/state_internal.pkl
   max_newton_iters: 12
   residual_tol: 1.0e-8
   krylov_tol: 1.0e-6
@@ -48,9 +59,9 @@ linearization:
   which: LR
 
 projected_run:
-  t_end: 20.0
-  n_steps: 200000
-  video_fps: 10
+  t_end: 40.0
+  n_steps: 150000
+  video_fps: 30
   video_speed: 1
   save_velocity_change_plot: true
   state_path: plots/steady/state_internal.pkl

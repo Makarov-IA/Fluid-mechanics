@@ -8,6 +8,7 @@ omp_flags=()
 static_flags=()
 solver_flags=()
 solver_libs=()
+platform_libs=()
 solver_backend="${LINEAR_SOLVER:-auto}"
 
 umfpack_include_dir=""
@@ -72,11 +73,19 @@ enable_accelerate_qr() {
     echo "Linear solver: Apple Accelerate QR"
 }
 
+enable_accelerate_ldlt() {
+    solver_flags=(-DUSE_ACCELERATE_LDLT)
+    solver_libs=(-framework Accelerate)
+    echo "Linear solver: Apple Accelerate LDLTTPP"
+}
+
 case "$os" in
     Darwin)
         echo "Detected: macOS"
         cxx="clang++"
         ext="dylib"
+        # Accelerate (BLAS) is always needed by the fast Stokes solver.
+        platform_libs=(-framework Accelerate)
         libomp="$(brew --prefix libomp 2>/dev/null || true)"
         if [[ -d "$libomp" ]]; then
             omp_flags=(
@@ -106,7 +115,9 @@ esac
 
 case "$solver_backend" in
     auto)
-        if find_umfpack; then
+        if [[ "$os" == "Darwin" ]]; then
+            enable_accelerate_ldlt
+        elif find_umfpack; then
             enable_umfpack
         else
             echo "Linear solver: Eigen SparseLU"
@@ -127,12 +138,19 @@ case "$solver_backend" in
         fi
         enable_accelerate_qr
         ;;
+    accelerate_ldlt|accelerate_ldlttpp|mac)
+        if [[ "$os" != "Darwin" ]]; then
+            echo "Apple Accelerate LDLTTPP is available only on macOS" >&2
+            exit 1
+        fi
+        enable_accelerate_ldlt
+        ;;
     sparselu|eigen)
         echo "Linear solver: Eigen SparseLU"
         ;;
     *)
         echo "Unknown LINEAR_SOLVER='${solver_backend}'" >&2
-        echo "Use one of: auto, umfpack, accelerate, sparselu" >&2
+        echo "Use one of: auto, umfpack, accelerate_ldlt, accelerate, sparselu" >&2
         exit 1
         ;;
 esac
@@ -162,6 +180,10 @@ cmd+=(stokes_mac.cpp)
 
 if ((${#solver_libs[@]})); then
     cmd+=("${solver_libs[@]}")
+fi
+
+if ((${#platform_libs[@]})); then
+    cmd+=("${platform_libs[@]}")
 fi
 
 if ((${#static_flags[@]})); then

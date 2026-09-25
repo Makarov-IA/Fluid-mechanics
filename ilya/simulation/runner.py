@@ -84,6 +84,8 @@ def run_simulation(
     xc: np.ndarray,
     yc: np.ndarray,
     initial_state: MacState | None = None,
+    initial_step: int = 0,
+    initial_t: float = 0.0,
     force_modifier: Callable[
         [np.ndarray | None, np.ndarray | None],
         tuple[np.ndarray | None, np.ndarray | None],
@@ -124,13 +126,19 @@ def run_simulation(
             cfg.dt,
         ) as solver:
             solver.set_bc_arrays(cfg.make_bc_arrays())
+            solver.set_linear_solver(
+                cfg.linear_solver_method,
+                cfg.linear_solver_fast_tol,
+                cfg.linear_solver_fast_extrapolation,
+                cfg.linear_solver_fast_parallel,
+            )
             if initial_state is not None:
                 solver.set_state(initial_state.u_vec, initial_state.v_vec, initial_state.p)
 
             step_done = 0
             for batch_start in range(0, cfg.n_steps, cfg.frame_every):
                 batch_n = min(cfg.frame_every, cfg.n_steps - batch_start)
-                t_start = batch_start * cfg.dt
+                t_start = initial_t + batch_start * cfg.dt
 
                 fu = fv = None
                 if cfg.has_forcing:
@@ -151,9 +159,12 @@ def run_simulation(
                 _raise_if_solver_diverged(divs, changes, batch_start, cfg.dt)
 
                 step_done += batch_n
-                t_now = step_done * cfg.dt
+                t_now = initial_t + step_done * cfg.dt
 
-                t_history.extend((batch_start + k + 1) * cfg.dt for k in range(batch_n))
+                t_history.extend(
+                    initial_t + (batch_start + k + 1) * cfg.dt
+                    for k in range(batch_n)
+                )
                 div_history.extend(divs.tolist())
                 velocity_change_history.extend(changes.tolist())
 
@@ -163,7 +174,7 @@ def run_simulation(
                 omega = _vorticity(uc, vc, xc, yc)
                 snapshots.append(
                     Snapshot(
-                        step=step_done,
+                        step=initial_step + step_done,
                         t=t_now,
                         p=p.astype(np.float32),
                         uc=uc.astype(np.float32),
@@ -178,7 +189,8 @@ def run_simulation(
                     progress.update(task, info=f"converged Δu={vel_change:.1e}")
                     progress.stop()
                     console.print(
-                        f"[green]✓ Converged[/green] at step [bold]{step_done}[/bold]  "
+                        f"[green]✓ Converged[/green] at step "
+                        f"[bold]{initial_step + step_done}[/bold]  "
                         f"t={t_now:.3f}  Δu={vel_change:.2e}"
                     )
                     converged = True
@@ -191,9 +203,19 @@ def run_simulation(
                     info=f"t={t_now:.2f}  |div|={divs[-1]:.2e}{du_str}",
                 )
 
+            fast_steps, fast_iters, fast_max_iters = solver.linear_solver_stats()
+
     if not converged:
         tol_str = "disabled" if cfg.conv_tol == 0 else "not reached"
-        console.print(f"[dim]Reached t_end={cfg.t_end:.3f}  (tol {tol_str})[/dim]")
+        console.print(
+            f"[dim]Reached t={initial_t + cfg.t_end:.3f}  "
+            f"(advanced by {cfg.t_end:.3f}; tol {tol_str})[/dim]"
+        )
+    if fast_steps:
+        console.print(
+            f"[dim]Fast linear solver: {fast_iters / fast_steps:.2f} CG iterations/step "
+            f"(max {fast_max_iters})[/dim]"
+        )
 
     return SimulationResult(
         snapshots=snapshots,

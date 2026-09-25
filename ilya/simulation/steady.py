@@ -17,7 +17,6 @@ console = Console()
 
 _TIME_VAR_RE = re.compile(r"(?<![A-Za-z0-9_])t(?![A-Za-z0-9_])")
 _PROJECT_DIR = Path(__file__).parent.parent
-_STEADY_GUESS_PATH = _PROJECT_DIR / "plots" / "run" / "fixed_time_state" / "state_internal.pkl"
 
 _STOP_REASONS = {
     1: "residual tolerance reached",
@@ -71,15 +70,24 @@ def _validate_time_independent(cfg: SimConfig) -> None:
 
 def _load_initial_guess(cfg: SimConfig) -> tuple[MacState, str]:
     """Load exact internal MAC state saved by simulation mode."""
+    guess_path = Path(cfg.steady_initial_state_path)
+    if not guess_path.is_absolute():
+        guess_path = _PROJECT_DIR / guess_path
     try:
-        mac_state, _ = load_mac_state_pickle(_STEADY_GUESS_PATH, cfg)
+        mac_state, metadata = load_mac_state_pickle(guess_path, cfg, check_dt=False)
     except FileNotFoundError as exc:
         raise FileNotFoundError(
-            f"Initial guess pickle not found: {_STEADY_GUESS_PATH}. "
-            "Run simulation mode first so it writes "
-            "plots/run/fixed_time_state/state_internal.pkl."
+            f"Initial guess pickle not found: {guess_path}. "
+            "Set steady_solver.initial_state_path to an existing "
+            "state_internal.pkl or run simulation mode first."
         ) from exc
-    return mac_state, str(_STEADY_GUESS_PATH)
+    saved_dt = metadata.get("dt")
+    if saved_dt is not None and not np.isclose(float(saved_dt), cfg.dt):
+        console.print(
+            f"  [yellow]steady initial dt differs:[/yellow] "
+            f"saved dt={float(saved_dt):.3e}, new dt={cfg.dt:.3e}"
+        )
+    return mac_state, str(guess_path)
 
 
 def _snapshot_from_fields(

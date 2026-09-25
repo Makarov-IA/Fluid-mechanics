@@ -3,20 +3,43 @@
 #include <Eigen/Sparse>
 #if defined(USE_UMFPACK)
 #  include <Eigen/UmfPackSupport>
+#elif defined(USE_ACCELERATE_LDLT)
+#  include <Eigen/AccelerateSupport>
 #elif defined(USE_ACCELERATE_QR)
 #  include <Eigen/AccelerateSupport>
 #else
 #  include <Eigen/SparseLU>
 #endif
+#include <memory>
 #include <vector>
+
+#include "fast_stokes.h"
 
 #if defined(USE_UMFPACK)
 using SparseSystemSolver = Eigen::UmfPackLU<Eigen::SparseMatrix<double>>;
+#elif defined(USE_ACCELERATE_LDLT)
+using SparseSystemSolver = Eigen::AccelerateLDLTTPP<Eigen::SparseMatrix<double>>;
 #elif defined(USE_ACCELERATE_QR)
 using SparseSystemSolver = Eigen::AccelerateQR<Eigen::SparseMatrix<double>>;
 #else
 using SparseSystemSolver = Eigen::SparseLU<Eigen::SparseMatrix<double>>;
 #endif
+
+#if defined(USE_ACCELERATE_LDLT)
+static constexpr bool kSolverUsesNegatedPressure = true;
+#else
+static constexpr bool kSolverUsesNegatedPressure = false;
+#endif
+
+// Metis nested dissection gives a sparser LDLT factor than the default
+// ordering on the MAC saddle-point system: ~1.5x faster solves, same result.
+inline void configure_sparse_solver(SparseSystemSolver& solver) {
+#if defined(USE_ACCELERATE_LDLT)
+    solver.setOrder(SparseOrderMetis);
+#else
+    (void)solver;
+#endif
+}
 
 // ---------------------------------------------------------------------------
 // 2-D Navier-Stokes on a staggered MAC grid
@@ -119,6 +142,15 @@ public:
 
     [[nodiscard]] const Eigen::SparseMatrix<double>& system_matrix() const { return system_mat_; }
 
+    // Choose how the per-step Stokes system is solved (see fast_stokes.h):
+    //   kind 0 — direct sparse LDL^T / LU (default),
+    //   kind 1 — fast separable Uzawa-PCG solver (macOS only).
+    // Returns 0 on success, -1 if the fast solver is unavailable, -2 on bad input.
+    int set_linear_solver(int kind, double tol, int extrapolation, bool parallel);
+
+    // Fast-solver statistics; all zero when the direct solver is active.
+    void linear_solver_stats(long* steps, long* cg_iterations, int* max_cg_iterations) const;
+
     int solve_linearized_eigenmodes(int n_eigs,
                                     const char* which,
                                     const double* fu,
@@ -185,6 +217,10 @@ private:
 
     Eigen::SparseMatrix<double> system_mat_;
     SparseSystemSolver          system_solver_;
+    bool                        system_factorized_ = false;  // factorised lazily
+#if defined(STOKES_HAS_FAST_SOLVER)
+    std::unique_ptr<FastStokesSolver> fast_solver_;  // non-null -> used by steps
+#endif
 
     // -----------------------------------------------------------------------
     // Pre-allocated work buffers — avoid per-step heap allocation
@@ -238,6 +274,10 @@ private:
     // -----------------------------------------------------------------------
 
     void build_monolithic_system();
+
+    // Solve system_mat_ * sol_ = rhs_ with the selected linear solver.
+    void solve_system();
+    void factorize_system();
 
     // Apply Dirichlet boundary conditions to the u and v fields.
     void apply_velocity_bc(std::vector<double>& u, std::vector<double>& v) const;

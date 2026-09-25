@@ -74,8 +74,10 @@ class SimConfig:
     video_speed: float = 1.0
     save_velocity_change_plot: bool = False
     conv_tol: float = 1e-6
+    restart_state_path: str | None = None
 
     fixed_time_state_t: float = 0.0
+    steady_initial_state_path: str = "plots/run/fixed_time_state/state_internal.pkl"
     steady_max_newton_iters: int = 12
     steady_residual_tol: float = 1e-8
     steady_krylov_tol: float = 1e-6
@@ -98,6 +100,11 @@ class SimConfig:
     projected_save_velocity_change_plot: bool | None = None
     projected_real_threshold: float = 1.0
     projected_projection_rcond: float = 1e-12
+
+    linear_solver_method: str = "direct"
+    linear_solver_fast_tol: float = 3e-15
+    linear_solver_fast_extrapolation: int = 3
+    linear_solver_fast_parallel: bool = True
 
     forcing_u: str = "0.0"
     forcing_v: str = "0.0"
@@ -158,6 +165,12 @@ class SimConfig:
             raise ValueError("projected_video_fps must be positive")
         if self.projected_video_speed is not None and self.projected_video_speed <= 0:
             raise ValueError("projected_video_speed must be positive")
+        if self.linear_solver_method not in ("direct", "fast"):
+            raise ValueError("linear_solver.method must be 'direct' or 'fast'")
+        if self.linear_solver_fast_tol <= 0:
+            raise ValueError("linear_solver.fast_tol must be positive")
+        if self.linear_solver_fast_extrapolation not in (0, 1, 2, 3):
+            raise ValueError("linear_solver.fast_extrapolation must be 0, 1, 2 or 3")
 
     @property
     def dt(self) -> float:
@@ -217,6 +230,7 @@ class SimConfig:
         steady = data.get("steady_solver", {}) or {}
         linear = data.get("linearization", {}) or {}
         projected = data.get("projected_run", {}) or {}
+        linear_solver = data.get("linear_solver", {}) or {}
 
         return cls(
             lx=data["domain"]["lx"],
@@ -235,9 +249,23 @@ class SimConfig:
                 )
             ),
             conv_tol=run.get("convergence_tol", convergence.get("tol", 1e-6)),
+            restart_state_path=(
+                run.get("restart_state_path")
+                or run.get("initial_state_path")
+                or run.get("restart_from")
+            ),
             fixed_time_state_t=run.get(
                 "fixed_time_state_t",
                 output.get("fixed_time_state_t", 0.0),
+            ),
+            steady_initial_state_path=str(
+                steady.get(
+                    "initial_state_path",
+                    steady.get(
+                        "state_path",
+                        steady.get("guess_path", "plots/run/fixed_time_state/state_internal.pkl"),
+                    ),
+                )
             ),
             steady_max_newton_iters=steady.get("max_newton_iters", 12),
             steady_residual_tol=steady.get("residual_tol", 1e-8),
@@ -267,6 +295,10 @@ class SimConfig:
             ),
             projected_real_threshold=projected.get("real_threshold", 1.0),
             projected_projection_rcond=projected.get("projection_rcond", 1e-12),
+            linear_solver_method=str(linear_solver.get("method", "direct")),
+            linear_solver_fast_tol=float(linear_solver.get("fast_tol", 3e-15)),
+            linear_solver_fast_extrapolation=int(linear_solver.get("fast_extrapolation", 3)),
+            linear_solver_fast_parallel=bool(linear_solver.get("fast_parallel", True)),
             forcing_u=str(forcing.get("fu", "0.0")),
             forcing_v=str(forcing.get("fv", "0.0")),
             bc_u_top=boundary.get("u_top"),

@@ -84,6 +84,12 @@ All runtime parameters live in `config.yaml`.
 - `run.fixed_time_state_t`: target time for the snapshot exported to
   `plots/run/fixed_time_state/*.pkl`
 - `run.convergence_tol`: early stop for simulation mode
+- `linear_solver.method`: how each time step's Stokes system is solved in
+  `run` and `projected-run` — `direct` (sparse LDLᵀ, default) or `fast`
+  (Uzawa-PCG in `fast_stokes.h`: exact sine-basis/tridiagonal velocity solves,
+  CG on the pressure Schur complement; same solution up to round-off, macOS
+  only). `fast_tol`, `fast_extrapolation`, `fast_parallel` tune it. `steady`
+  always uses `direct`.
 - `steady_solver.*`: Newton-GMRES parameters
 - `linearization.*`: linearization and eigenmode-selection parameters
 - `projected_run.*`: independent projected-run runtime settings and unstable-mode

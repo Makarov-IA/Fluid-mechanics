@@ -25,13 +25,18 @@ from simulation.runner import run_simulation
 from simulation.steady import solve_steady
 from solver.config import SimConfig, Snapshot
 from solver.lib import find_solver_lib
+from solver.state_io import load_mac_state_pickle
 from viz.levels import compute_colour_levels
 from viz.plots import (
+    save_cavity_centerline_profiles,
+    save_cavity_streamfunction_contours,
+    save_center_velocity_plot,
     save_divergence_plot,
     save_final_figure,
     save_iterate_change_plot,
     save_mac_state_pickle,
     save_state_pickle,
+    save_velocity_field_sequence,
     save_velocity_change_plot,
 )
 from viz.video import render_videos
@@ -45,6 +50,14 @@ def _resolve_config_path(config: str) -> Path:
     path = Path(config)
     if path.suffix == "":
         path = path.with_suffix(".yaml")
+    if not path.is_absolute():
+        path = PROJECT_DIR / path
+    return path
+
+
+def _resolve_project_path(path_text: str) -> Path:
+    """Resolve a project-relative path from config."""
+    path = Path(path_text)
     if not path.is_absolute():
         path = PROJECT_DIR / path
     return path
@@ -66,6 +79,16 @@ def _nearest_snapshot(
     return idx, snap, abs(float(snap.t) - t_target)
 
 
+def _linear_solver_desc(cfg: SimConfig) -> str:
+    if cfg.linear_solver_method == "direct":
+        return "direct (sparse LDLᵀ)"
+    return (
+        f"fast (Uzawa-PCG, tol {cfg.linear_solver_fast_tol:.0e}, "
+        f"extrapolation {cfg.linear_solver_fast_extrapolation}, "
+        f"{'2 threads' if cfg.linear_solver_fast_parallel else '1 thread'})"
+    )
+
+
 def _print_simulation_config(cfg: SimConfig) -> None:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="bold cyan")
@@ -83,15 +106,18 @@ def _print_simulation_config(cfg: SimConfig) -> None:
     conv = f"{cfg.conv_tol:.1e}" if cfg.conv_tol > 0 else "disabled"
     table.add_row("conv_tol", conv)
     table.add_row("fixed state t", f"{cfg.fixed_time_state_t}")
+    if cfg.restart_state_path:
+        table.add_row("restart", cfg.restart_state_path)
     table.add_row(
         "ΔU(t) plot",
         "enabled" if cfg.save_velocity_change_plot else "disabled",
     )
+    table.add_row("linear solver", _linear_solver_desc(cfg))
     console.print(Panel(table, title="[bold]Simulation config[/bold]", expand=False))
 
 
 def _print_steady_config(cfg: SimConfig) -> None:
-    guess_path = PROJECT_DIR / "plots" / "run" / "fixed_time_state" / "state_internal.pkl"
+    guess_path = _resolve_project_path(cfg.steady_initial_state_path)
     nu_u = (cfg.nx - 1) * cfg.ny
     nv_u = cfg.nx * (cfg.ny - 1)
     np_u = cfg.nx * cfg.ny
@@ -170,6 +196,7 @@ def _print_projected_run_config(cfg: SimConfig) -> None:
         "early stop",
         "disabled" if cfg.conv_tol == 0 else f"velocity_change < {cfg.conv_tol:.1e}",
     )
+    table.add_row("linear solver", _linear_solver_desc(cfg))
     console.print(
         Panel(table, title="[bold]Projected-Forcing Simulation[/bold]", expand=False)
     )
@@ -181,16 +208,45 @@ def _run_simulation(cfg: SimConfig) -> None:
     lib_path = find_solver_lib(PROJECT_DIR)
     console.print(f"  Library: [dim]{lib_path.name}[/dim]")
 
+    initial_state = None
+    initial_step = 0
+    initial_t = 0.0
+    if cfg.restart_state_path:
+        restart_path = _resolve_project_path(cfg.restart_state_path)
+        initial_state, metadata = load_mac_state_pickle(restart_path, cfg, check_dt=False)
+        initial_step = int(metadata.get("step", 0))
+        initial_t = float(metadata.get("t", initial_step * cfg.dt))
+        console.print(
+            "  Restart: "
+            f"[dim]{restart_path}[/dim]  "
+            f"step={initial_step:,}  t={initial_t:.6g}"
+        )
+        saved_dt = metadata.get("dt")
+        if saved_dt is not None and not np.isclose(float(saved_dt), cfg.dt, rtol=1e-12, atol=1e-14):
+            console.print(
+                "  [yellow]Restart dt differs:[/yellow] "
+                f"saved dt={float(saved_dt):.3e}, new dt={cfg.dt:.3e}"
+            )
+
     out_dir = PROJECT_DIR / "plots" / "run"
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(cfg)
 
-    result = run_simulation(cfg, lib_path, xc, yc)
+    result = run_simulation(
+        cfg,
+        lib_path,
+        xc,
+        yc,
+        initial_state=initial_state,
+        initial_step=initial_step,
+        initial_t=initial_t,
+    )
     snapshots = result.snapshots
     console.print(f"  [green]✓[/green] {len(snapshots)} snapshots collected")
 
     final_snapshot = snapshots[-1]
-    guess_idx, guess_snapshot, guess_dt = _nearest_snapshot(snapshots, cfg.fixed_time_state_t)
+    guess_target_t = initial_t + cfg.fixed_time_state_t
+    guess_idx, guess_snapshot, guess_dt = _nearest_snapshot(snapshots, guess_target_t)
     speed_levels, p_levels, omega_levels = compute_colour_levels(snapshots)
 
     with console.status("[cyan]Saving plots…[/cyan]"):
@@ -202,6 +258,8 @@ def _run_simulation(cfg: SimConfig) -> None:
                 result.velocity_change_history,
                 out_dir,
             )
+        center_velocity_path = save_center_velocity_plot(snapshots, cfg, xc, yc, out_dir)
+        velocity_fields_path = save_velocity_field_sequence(snapshots, cfg, xc, yc, out_dir)
 
         final_paths = save_final_figure(
             final_snapshot,
@@ -214,8 +272,22 @@ def _run_simulation(cfg: SimConfig) -> None:
             omega_levels,
             panel_subdir="final_state",
         )
+        cavity_profiles_path = save_cavity_centerline_profiles(
+            final_snapshot,
+            cfg,
+            xc,
+            yc,
+            out_dir,
+        )
         final_state_path = out_dir / "final_state" / "state.pkl"
+        final_internal_path = out_dir / "final_state" / "state_internal.pkl"
         save_state_pickle(final_snapshot, xc, yc, final_state_path)
+        save_mac_state_pickle(
+            result.mac_states[-1],
+            cfg,
+            final_snapshot,
+            final_internal_path,
+        )
 
         guess_paths = save_final_figure(
             guess_snapshot,
@@ -255,9 +327,14 @@ def _run_simulation(cfg: SimConfig) -> None:
     table.add_row("✓ divergence", str(divergence_path))
     if velocity_change_path is not None:
         table.add_row("✓ velocity-change", str(velocity_change_path))
+    table.add_row("✓ control-point velocity", str(center_velocity_path))
+    table.add_row("✓ velocity-fields", str(velocity_fields_path))
     for path in final_paths:
         table.add_row(f"✓ final/{path.name}", str(path))
+    if cavity_profiles_path is not None:
+        table.add_row("✓ cavity centreline profiles", str(cavity_profiles_path))
     table.add_row("✓ final/state.pkl", str(final_state_path))
+    table.add_row("✓ final/state_internal.pkl", str(final_internal_path))
     for path in guess_paths:
         table.add_row(f"✓ fixed-time/{path.name}", str(path))
     table.add_row("✓ fixed-time/state.pkl", str(guess_state_path))
@@ -265,7 +342,7 @@ def _run_simulation(cfg: SimConfig) -> None:
     table.add_row(
         "✓ steady guess target",
         (
-            f"target t={cfg.fixed_time_state_t:.3f}  →  "
+            f"target t={guess_target_t:.3f}  →  "
             f"snapshot t={guess_snapshot.t:.3f}  (|Δt|={guess_dt:.3f})"
         ),
     )
@@ -317,6 +394,20 @@ def _run_projected_run(cfg: SimConfig) -> None:
                 result.velocity_change_history,
                 out_dir,
             )
+        center_velocity_path = save_center_velocity_plot(
+            snapshots,
+            runtime_cfg,
+            xc,
+            yc,
+            out_dir,
+        )
+        velocity_fields_path = save_velocity_field_sequence(
+            snapshots,
+            runtime_cfg,
+            xc,
+            yc,
+            out_dir,
+        )
 
         final_paths = save_final_figure(
             final_snapshot,
@@ -357,6 +448,8 @@ def _run_projected_run(cfg: SimConfig) -> None:
     table.add_row("✓ divergence", str(divergence_path))
     if velocity_change_path is not None:
         table.add_row("✓ velocity-change", str(velocity_change_path))
+    table.add_row("✓ control-point velocity", str(center_velocity_path))
+    table.add_row("✓ velocity-fields", str(velocity_fields_path))
     for path in final_paths:
         table.add_row(f"✓ final/{path.name}", str(path))
     table.add_row("✓ final/state.pkl", str(final_state_path))
@@ -400,6 +493,20 @@ def _run_steady(cfg: SimConfig) -> None:
             p_levels,
             omega_levels,
             panel_subdir="",
+            show_state_title=False,
+            show_vortex_markers=False,
+        )
+        cavity_profiles_path = save_cavity_centerline_profiles(
+            snap,
+            cfg,
+            xc,
+            yc,
+            out_dir,
+        )
+        cavity_streamfunction_path = save_cavity_streamfunction_contours(
+            snap,
+            cfg,
+            out_dir,
         )
         state_path = out_dir / "state.pkl"
         internal_path = out_dir / "state_internal.pkl"
@@ -412,6 +519,10 @@ def _run_steady(cfg: SimConfig) -> None:
     table.add_column(style="dim")
     for path in final_paths:
         table.add_row(f"✓ steady/{path.name}", str(path))
+    if cavity_profiles_path is not None:
+        table.add_row("✓ steady/cavity_centerline_profiles.png", str(cavity_profiles_path))
+    if cavity_streamfunction_path is not None:
+        table.add_row("✓ steady/cavity_streamfunction_contours.png", str(cavity_streamfunction_path))
     table.add_row("✓ steady/state.pkl", str(state_path))
     table.add_row("✓ steady/state_internal.pkl", str(internal_path))
     table.add_row("✓ steady/steady_iterate_change.png", str(change_plot_path))

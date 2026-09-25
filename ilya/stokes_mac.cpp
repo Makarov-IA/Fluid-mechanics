@@ -56,12 +56,70 @@ StokesMac2D::StokesMac2D(int nx, int ny, double lx, double ly,
     bc_v_top_.assign(nx_, 0.0);
 
     build_monolithic_system();
+    apply_velocity_bc(u_, v_);
+}
+
+// ---------------------------------------------------------------------------
+// Linear solver selection
+// ---------------------------------------------------------------------------
+
+void StokesMac2D::factorize_system() {
+    configure_sparse_solver(system_solver_);
     system_solver_.analyzePattern(system_mat_);
     system_solver_.factorize(system_mat_);
     if (system_solver_.info() != Eigen::Success)
         throw std::runtime_error("Monolithic matrix factorisation failed");
+    system_factorized_ = true;
+}
 
-    apply_velocity_bc(u_, v_);
+void StokesMac2D::solve_system() {
+#if defined(STOKES_HAS_FAST_SOLVER)
+    if (fast_solver_) {
+        fast_solver_->solve(rhs_.data(), sol_.data(), p_.data(), kSolverUsesNegatedPressure);
+        return;
+    }
+#endif
+    if (!system_factorized_) factorize_system();
+    sol_.noalias() = system_solver_.solve(rhs_);
+    if (system_solver_.info() != Eigen::Success)
+        throw std::runtime_error("Monolithic linear solve failed");
+}
+
+int StokesMac2D::set_linear_solver(int kind, double tol, int extrapolation, bool parallel) {
+    if (kind == 0) {
+#if defined(STOKES_HAS_FAST_SOLVER)
+        fast_solver_.reset();
+#endif
+        return 0;
+    }
+    if (kind != 1) return -2;
+#if defined(STOKES_HAS_FAST_SOLVER)
+    try {
+        fast_solver_ = std::make_unique<FastStokesSolver>(
+            nx_, ny_, dx_, dy_, nu_, dt_, tol, extrapolation, parallel);
+    } catch (const std::invalid_argument&) {
+        return -2;
+    }
+    return 0;
+#else
+    (void)tol; (void)extrapolation; (void)parallel;
+    return -1;
+#endif
+}
+
+void StokesMac2D::linear_solver_stats(long* steps, long* cg_iterations, int* max_cg_iterations) const {
+    long s = 0, it = 0;
+    int mx = 0;
+#if defined(STOKES_HAS_FAST_SOLVER)
+    if (fast_solver_) {
+        s = fast_solver_->steps();
+        it = fast_solver_->cg_iterations();
+        mx = fast_solver_->max_cg_iterations();
+    }
+#endif
+    if (steps) *steps = s;
+    if (cg_iterations) *cg_iterations = it;
+    if (max_cg_iterations) *max_cg_iterations = mx;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +245,8 @@ double StokesMac2D::scatter_solution_and_measure_velocity_change() {
     #pragma omp parallel for collapse(2) schedule(static)
     for (int j = 0; j < ny_; ++j) {
         for (int i = 0; i < nx_; ++i) {
-            p_[p_idx(i, j)] = sol_[p_unknown_idx(i, j)];
+            const double pressure = sol_[p_unknown_idx(i, j)];
+            p_[p_idx(i, j)] = kSolverUsesNegatedPressure ? -pressure : pressure;
         }
     }
 
@@ -242,9 +301,13 @@ void StokesMac2D::build_monolithic_system() {
 
             trips.emplace_back(row, row, diag);
 
-            // Pressure gradient:  (p(i,j) − p(i-1,j)) / dx
-            trips.emplace_back(row, p_unknown_idx(i,  j), +1.0/dx_);
-            trips.emplace_back(row, p_unknown_idx(i-1,j), -1.0/dx_);
+            // Pressure gradient:  (p(i,j) − p(i-1,j)) / dx.
+            // The Accelerate LDLT backend uses the symmetric lower triangle,
+            // where the pressure unknown is represented with opposite sign.
+            if constexpr (!kSolverUsesNegatedPressure) {
+                trips.emplace_back(row, p_unknown_idx(i,  j), +1.0/dx_);
+                trips.emplace_back(row, p_unknown_idx(i-1,j), -1.0/dx_);
+            }
         }
     }
 
@@ -277,9 +340,11 @@ void StokesMac2D::build_monolithic_system() {
 
             trips.emplace_back(row, row, diag);
 
-            // Pressure gradient:  (p(i,j) − p(i,j-1)) / dy
-            trips.emplace_back(row, p_unknown_idx(i,j  ), +1.0/dy_);
-            trips.emplace_back(row, p_unknown_idx(i,j-1), -1.0/dy_);
+            // Pressure gradient:  (p(i,j) − p(i,j-1)) / dy.
+            if constexpr (!kSolverUsesNegatedPressure) {
+                trips.emplace_back(row, p_unknown_idx(i,j  ), +1.0/dy_);
+                trips.emplace_back(row, p_unknown_idx(i,j-1), -1.0/dy_);
+            }
         }
     }
 
@@ -363,9 +428,7 @@ double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
     // ------------------------------------------------------------------
     // Solve  A·x = rhs  (factorisation already done in constructor)
     // ------------------------------------------------------------------
-    sol_.noalias() = system_solver_.solve(rhs_);
-    if (system_solver_.info() != Eigen::Success)
-        throw std::runtime_error("Monolithic linear solve failed");
+    solve_system();
 
     last_velocity_change_ = scatter_solution_and_measure_velocity_change();
 
@@ -410,9 +473,7 @@ double StokesMac2D::step_with_force_arrays(double t,
         }
     }
 
-    sol_.noalias() = system_solver_.solve(rhs_);
-    if (system_solver_.info() != Eigen::Success)
-        throw std::runtime_error("Monolithic linear solve failed");
+    solve_system();
 
     last_velocity_change_ = scatter_solution_and_measure_velocity_change();
     return max_divergence();
@@ -493,6 +554,9 @@ void StokesMac2D::set_state_arrays(const double* u_interior,
     }
 
     apply_velocity_bc(u_, v_);
+#if defined(STOKES_HAS_FAST_SOLVER)
+    if (fast_solver_) fast_solver_->reset();
+#endif
 }
 
 void StokesMac2D::get_state_arrays(double* u_interior,
@@ -606,6 +670,17 @@ int StokesMac2D::solve_steady_newton(int max_newton_iters,
                                      int* stop_code,
                                      double* iterate_change_inf,
                                      int* iterate_change_count) {
+#if defined(STOKES_HAS_FAST_SOLVER)
+    // Newton differentiates the step map by finite differences; the fast
+    // solver's history-based initial guess would make that map depend on
+    // previous calls, so steady solves always use the direct solver.
+    struct FastSolverPause {
+        std::unique_ptr<FastStokesSolver>& slot;
+        std::unique_ptr<FastStokesSolver> saved;
+        explicit FastSolverPause(std::unique_ptr<FastStokesSolver>& s) : slot(s), saved(std::move(s)) {}
+        ~FastSolverPause() { slot = std::move(saved); }
+    } pause(fast_solver_);
+#endif
     try {
         const int velocity_size = nu_unknowns_ + nv_unknowns_;
         if (max_newton_iters <= 0 || krylov_maxiter <= 0 || krylov_restart <= 0) return -2;
@@ -886,16 +961,20 @@ Eigen::SparseMatrix<double> StokesMac2D::build_projection_matrix() const {
     for (int j = 0; j < ny_; ++j) {
         for (int i = 1; i < nx_; ++i) {
             const int row = u_unknown_idx(i, j);
-            trips.emplace_back(row, p_unknown_idx(i, j), +1.0 / dx_);
-            trips.emplace_back(row, p_unknown_idx(i - 1, j), -1.0 / dx_);
+            if constexpr (!kSolverUsesNegatedPressure) {
+                trips.emplace_back(row, p_unknown_idx(i, j), +1.0 / dx_);
+                trips.emplace_back(row, p_unknown_idx(i - 1, j), -1.0 / dx_);
+            }
         }
     }
 
     for (int j = 1; j < ny_; ++j) {
         for (int i = 0; i < nx_; ++i) {
             const int row = v_unknown_idx(i, j);
-            trips.emplace_back(row, p_unknown_idx(i, j), +1.0 / dy_);
-            trips.emplace_back(row, p_unknown_idx(i, j - 1), -1.0 / dy_);
+            if constexpr (!kSolverUsesNegatedPressure) {
+                trips.emplace_back(row, p_unknown_idx(i, j), +1.0 / dy_);
+                trips.emplace_back(row, p_unknown_idx(i, j - 1), -1.0 / dy_);
+            }
         }
     }
 
@@ -932,6 +1011,9 @@ Eigen::VectorXd StokesMac2D::project_velocity_rhs(
     }
     if (pressure) {
         *pressure = solved.tail(np_unknowns_);
+        if constexpr (kSolverUsesNegatedPressure) {
+            *pressure *= -1.0;
+        }
     }
     return solved.head(nu_unknowns_ + nv_unknowns_);
 }
@@ -1050,6 +1132,7 @@ int StokesMac2D::solve_linearized_eigenmodes(int n_eigs,
 
         Eigen::SparseMatrix<double> projection_matrix = build_projection_matrix();
         SparseSystemSolver projection_solver;
+        configure_sparse_solver(projection_solver);
         projection_solver.analyzePattern(projection_matrix);
         projection_solver.factorize(projection_matrix);
         if (projection_solver.info() != Eigen::Success) {
@@ -1252,6 +1335,24 @@ extern "C" void* stokes_mac_create_c(int Nx, int Ny,
     } catch (...) {
         return nullptr;
     }
+}
+
+extern "C" int stokes_mac_set_linear_solver_c(void* handle, int kind, double tol,
+                                              int extrapolation, int parallel) {
+    if (!handle) return -2;
+    return reinterpret_cast<StokesMac2D*>(handle)->set_linear_solver(
+        kind, tol, extrapolation, parallel != 0);
+}
+
+extern "C" void stokes_mac_linear_solver_stats_c(void* handle, long long* steps,
+                                                 long long* cg_iterations,
+                                                 int* max_cg_iterations) {
+    long s = 0, it = 0;
+    int mx = 0;
+    if (handle) reinterpret_cast<StokesMac2D*>(handle)->linear_solver_stats(&s, &it, &mx);
+    if (steps) *steps = s;
+    if (cg_iterations) *cg_iterations = it;
+    if (max_cg_iterations) *max_cg_iterations = mx;
 }
 
 extern "C" void stokes_mac_free_c(void* handle) {
