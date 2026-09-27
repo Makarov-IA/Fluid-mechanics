@@ -1,4 +1,15 @@
-"""Simulation from a steady state with unstable-mode forcing projection removed."""
+"""Simulation from a steady state with the unstable modes suppressed.
+
+Two methods (``projected_run.method``):
+
+* ``forcing``  — remove the component of [fu, fv] along the unstable modes
+  once (open loop).
+* ``feedback`` — every time step the time derivative uses
+  u*_n = u^n - alpha * Pi (u^n - u_s) instead of u^n, i.e. the correction
+  delta_n = alpha * Pi (u^n - u_s) is moved to the right-hand side as
+  -delta_n / dt; convection keeps u^n.  Pi = Q W^T is the oblique projector
+  onto the unstable eigenspace along the stable one (W from adjoint modes).
+"""
 
 from __future__ import annotations
 
@@ -25,6 +36,18 @@ class ProjectionInfo:
     force_norm: float
     removed_norm: float
     remaining_norm: float
+    method: str = "forcing"
+    feedback_alpha: float | None = None
+
+
+@dataclass
+class FeedbackStabilization:
+    """Data for the per-step feedback correction in the C++ solver."""
+
+    basis: np.ndarray    # Q, (velocity_size, m)
+    adjoint: np.ndarray  # W, (velocity_size, m), W^T Q = I
+    u_star: np.ndarray   # steady velocity [u_vec, v_vec]
+    alpha: float
 
 
 class ForceProjection:
@@ -181,6 +204,89 @@ def build_projected_run(
     return mac_state, projector, info
 
 
+def _oblique_projector(
+    eigenvalues: np.ndarray,
+    right: np.ndarray,
+    left: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Real Q, W with W^T Q = I spanning the given (complex) modes.
+
+    A complex pair enters through one member (Im lambda > 0) as
+    [Re q, Im q]; Pi = Q W^T is then the real oblique projector onto the
+    invariant subspace along the complementary one (left modes).
+    """
+    q_cols: list[np.ndarray] = []
+    a_cols: list[np.ndarray] = []
+    for k, lam in enumerate(eigenvalues):
+        if lam.imag < 0.0 and np.any(np.isclose(eigenvalues, np.conj(lam))):
+            continue  # conjugate partner already represented
+        q_cols.append(right[:, k].real)
+        a_cols.append(left[:, k].real)
+        if lam.imag != 0.0:
+            q_cols.append(right[:, k].imag)
+            a_cols.append(left[:, k].imag)
+    if not q_cols:
+        empty = np.empty((right.shape[0], 0))
+        return empty, empty
+    q_mat = np.column_stack(q_cols)
+    a_mat = np.column_stack(a_cols)
+    w_mat = a_mat @ np.linalg.inv(q_mat.T @ a_mat)
+    return q_mat, w_mat
+
+
+def build_feedback_stabilization(
+    cfg: SimConfig,
+    project_dir: Path,
+) -> tuple[MacState, FeedbackStabilization, ProjectionInfo]:
+    """Load steady state/eigenpairs/adjoints and build the feedback projector."""
+    state_path = resolve_projected_state_path(project_dir, cfg)
+    eigenpairs_path = resolve_projected_eigenpairs_path(project_dir, cfg)
+    mac_state, _ = load_mac_state_pickle(state_path, cfg, check_dt=False)
+    eigen_data = _load_eigenpairs(eigenpairs_path, cfg)
+    if "adjoint_vectors" not in eigen_data:
+        raise ValueError(
+            f"{eigenpairs_path} has no adjoint modes; rerun `make linearize` "
+            "(needed for projected_run.method: feedback)"
+        )
+
+    eigenvalues = np.asarray(eigen_data["eigenvalues"], dtype=np.complex128)
+    eigenvectors = np.asarray(eigen_data["eigenvectors"], dtype=np.complex128)
+    adjoints = np.asarray(eigen_data["adjoint_vectors"], dtype=np.complex128)
+    velocity_size = (cfg.nx - 1) * cfg.ny + cfg.nx * (cfg.ny - 1)
+
+    selected = np.flatnonzero(eigenvalues.real > cfg.projected_real_threshold)
+    basis, adjoint = _oblique_projector(
+        eigenvalues[selected],
+        eigenvectors[:velocity_size, selected],
+        adjoints[:, selected],
+    )
+    if basis.shape[1] == 0:
+        raise ValueError(
+            f"No eigenvalue with Re(lambda) > {cfg.projected_real_threshold} in "
+            f"{eigenpairs_path}; nothing to stabilise"
+        )
+    stabilization = FeedbackStabilization(
+        basis=basis,
+        adjoint=adjoint,
+        u_star=np.concatenate([mac_state.u_vec, mac_state.v_vec]),
+        alpha=cfg.projected_feedback_alpha,
+    )
+    info = ProjectionInfo(
+        state_path=state_path,
+        eigenpairs_path=eigenpairs_path,
+        real_threshold=cfg.projected_real_threshold,
+        selected_indices=selected,
+        selected_eigenvalues=eigenvalues[selected],
+        basis_rank=basis.shape[1],
+        force_norm=0.0,
+        removed_norm=0.0,
+        remaining_norm=0.0,
+        method="feedback",
+        feedback_alpha=cfg.projected_feedback_alpha,
+    )
+    return mac_state, stabilization, info
+
+
 def save_projection_info(info: ProjectionInfo, out_dir: Path) -> Path:
     """Save projected-run projection metadata."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -195,6 +301,8 @@ def save_projection_info(info: ProjectionInfo, out_dir: Path) -> Path:
         "force_norm": info.force_norm,
         "removed_norm": info.removed_norm,
         "remaining_norm": info.remaining_norm,
+        "method": info.method,
+        "feedback_alpha": info.feedback_alpha,
     }
     with path.open("wb") as fh:
         pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)

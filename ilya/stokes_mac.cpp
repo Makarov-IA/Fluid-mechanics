@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <vector>
 #include <Eigen/Eigenvalues>
+#include <Eigen/SparseLU>
 #ifdef _OPENMP
 #  include <omp.h>
 #endif
@@ -428,6 +429,7 @@ double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
     // ------------------------------------------------------------------
     // Solve  A·x = rhs  (factorisation already done in constructor)
     // ------------------------------------------------------------------
+    apply_stabilization_to_rhs();
     solve_system();
 
     last_velocity_change_ = scatter_solution_and_measure_velocity_change();
@@ -473,6 +475,7 @@ double StokesMac2D::step_with_force_arrays(double t,
         }
     }
 
+    apply_stabilization_to_rhs();
     solve_system();
 
     last_velocity_change_ = scatter_solution_and_measure_velocity_change();
@@ -681,6 +684,13 @@ int StokesMac2D::solve_steady_newton(int max_newton_iters,
         ~FastSolverPause() { slot = std::move(saved); }
     } pause(fast_solver_);
 #endif
+    // The steady problem is uncontrolled.
+    struct StabilizationPause {
+        int& m;
+        int saved;
+        explicit StabilizationPause(int& mm) : m(mm), saved(mm) { m = 0; }
+        ~StabilizationPause() { m = saved; }
+    } stab_pause(stab_m_);
     try {
         const int velocity_size = nu_unknowns_ + nv_unknowns_;
         if (max_newton_iters <= 0 || krylov_maxiter <= 0 || krylov_restart <= 0) return -2;
@@ -1034,7 +1044,7 @@ Eigen::VectorXd StokesMac2D::linearized_raw_velocity_action(const Eigen::VectorX
     }
     for (int j = 1; j < ny_; ++j) {
         for (int i = 0; i < nx_; ++i) {
-            b[v_idx(i, j)] = velocity[v_unknown_idx(i, j) - nu_unknowns_];
+            b[v_idx(i, j)] = velocity[v_unknown_idx(i, j)];
         }
     }
 
@@ -1323,6 +1333,443 @@ int StokesMac2D::solve_linearized_eigenmodes(int n_eigs,
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Feedback stabilisation
+// ---------------------------------------------------------------------------
+
+void StokesMac2D::set_stabilization(int m, const double* Q, const double* W,
+                                    const double* u_star, double alpha) {
+    control_history_.clear();
+    if (m <= 0 || !Q || !W || !u_star) {
+        stab_m_ = 0;
+        return;
+    }
+    const int nvel = nu_unknowns_ + nv_unknowns_;
+    stab_Q_ = Eigen::Map<const Eigen::MatrixXd>(Q, nvel, m);
+    stab_W_ = Eigen::Map<const Eigen::MatrixXd>(W, nvel, m);
+    stab_ustar_ = Eigen::Map<const Eigen::VectorXd>(u_star, nvel);
+    stab_dev_.resize(nvel);
+    stab_coef_.resize(m);
+    stab_delta_.resize(nvel);
+    stab_alpha_ = alpha;
+    stab_m_ = m;
+}
+
+int StokesMac2D::take_control_history(double* out, int capacity_pairs) {
+    const int pairs = static_cast<int>(control_history_.size() / 2);
+    const int n = std::min(pairs, std::max(capacity_pairs, 0));
+    if (out && n > 0) std::copy(control_history_.begin(), control_history_.begin() + 2 * n, out);
+    control_history_.erase(control_history_.begin(), control_history_.begin() + 2 * n);
+    return n;
+}
+
+void StokesMac2D::apply_stabilization_to_rhs() {
+    if (stab_m_ <= 0) return;
+    const int nvel = nu_unknowns_ + nv_unknowns_;
+    for (int j = 0; j < ny_; ++j)
+        for (int i = 1; i < nx_; ++i) {
+            const int k = u_unknown_idx(i, j);
+            stab_dev_[k] = u_[u_idx(i, j)] - stab_ustar_[k];
+        }
+    for (int j = 1; j < ny_; ++j)
+        for (int i = 0; i < nx_; ++i) {
+            const int k = v_unknown_idx(i, j);
+            stab_dev_[k] = v_[v_idx(i, j)] - stab_ustar_[k];
+        }
+    stab_coef_.noalias() = stab_W_.transpose() * stab_dev_;
+    stab_delta_.noalias() = stab_Q_ * stab_coef_;
+    stab_delta_ *= stab_alpha_;
+    // (u^{n+1} - u*_n)/dt with u*_n = u^n - delta_n  ->  RHS -= delta_n / dt
+    rhs_.head(nvel) -= stab_delta_ / dt_;
+    control_history_.push_back(stab_delta_.cwiseAbs().maxCoeff());
+    control_history_.push_back(stab_dev_.cwiseAbs().maxCoeff());
+}
+
+// ---------------------------------------------------------------------------
+// Refined eigenpairs and adjoint (left) eigenvectors of the linearised operator
+// ---------------------------------------------------------------------------
+
+namespace {
+
+template <typename Scalar>
+using SVec = Eigen::Matrix<Scalar, Eigen::Dynamic, 1>;
+
+inline double scalar_abs(double x) { return std::abs(x); }
+inline double scalar_abs(const std::complex<double>& x) { return std::abs(x); }
+
+// Normalise to unit 2-norm with the largest component real and positive.
+template <typename Scalar>
+void normalise_mode(SVec<Scalar>& v) {
+    Eigen::Index idx = 0;
+    v.cwiseAbs().maxCoeff(&idx);
+    const Scalar phase = v[idx] / Scalar(scalar_abs(v[idx]));
+    v /= phase * Scalar(v.norm());
+}
+
+// Shifted inverse iteration on the pencil  A x = lambda B x,
+//   A = [J -G; D gauge],  B = diag(I, 0),
+// for the right vector x and the left vector y (A^T y = lambda B^T y).
+template <typename Scalar>
+int refine_mode(const Eigen::SparseMatrix<double>& J,
+                const Eigen::SparseMatrix<double>& G,
+                const Eigen::SparseMatrix<double>& D,
+                int gauge_p,
+                Scalar lambda0,
+                const SVec<Scalar>& q0,
+                SVec<Scalar>& q,
+                SVec<Scalar>& a,
+                Scalar& lambda,
+                double& residual,
+                SVec<Scalar>* pressure = nullptr) {
+    using SpMat = Eigen::SparseMatrix<Scalar>;
+    const Eigen::Index nvel = J.rows();
+    const Eigen::Index np = G.cols();
+    const Eigen::Index n = nvel + np;
+    const Scalar sigma = lambda0 + Scalar(1e-4 * (1.0 + scalar_abs(lambda0)));
+
+    std::vector<Eigen::Triplet<Scalar>> trips;
+    trips.reserve(static_cast<size_t>(J.nonZeros() + G.nonZeros() + D.nonZeros() + nvel + 1));
+    for (int k = 0; k < J.outerSize(); ++k)
+        for (Eigen::SparseMatrix<double>::InnerIterator it(J, k); it; ++it)
+            trips.emplace_back(it.row(), it.col(), Scalar(it.value()));
+    for (Eigen::Index i = 0; i < nvel; ++i) trips.emplace_back(i, i, -sigma);
+    for (int k = 0; k < G.outerSize(); ++k)
+        for (Eigen::SparseMatrix<double>::InnerIterator it(G, k); it; ++it)
+            trips.emplace_back(it.row(), nvel + it.col(), Scalar(-it.value()));
+    for (int k = 0; k < D.outerSize(); ++k)
+        for (Eigen::SparseMatrix<double>::InnerIterator it(D, k); it; ++it)
+            trips.emplace_back(nvel + it.row(), it.col(), Scalar(it.value()));
+    trips.emplace_back(nvel + gauge_p, nvel + gauge_p, Scalar(1.0));
+    SpMat M(n, n);
+    M.setFromTriplets(trips.begin(), trips.end());
+    M.makeCompressed();
+
+    Eigen::SparseLU<SpMat, Eigen::COLAMDOrdering<int>> lu;
+    lu.analyzePattern(M);
+    lu.factorize(M);
+    if (lu.info() != Eigen::Success) return -5;
+
+    auto iterate = [&](bool transpose, SVec<Scalar>& x) -> bool {
+        SVec<Scalar> v = x.head(nvel);
+        normalise_mode(v);
+        SVec<Scalar> rhs = SVec<Scalar>::Zero(n);
+        SVec<Scalar> full = x;
+        for (int it = 0; it < 40; ++it) {
+            rhs.head(nvel) = v;
+            full = transpose ? SVec<Scalar>(lu.transpose().solve(rhs)) : SVec<Scalar>(lu.solve(rhs));
+            if (lu.info() != Eigen::Success) return false;
+            // scale the whole vector so that its velocity part is normalised
+            Eigen::Index idx = 0;
+            full.head(nvel).cwiseAbs().maxCoeff(&idx);
+            const Scalar f = (full[idx] / Scalar(scalar_abs(full[idx]))) * Scalar(full.head(nvel).norm());
+            full /= f;
+            const double change = (full.head(nvel) - v).norm();
+            v = full.head(nvel);
+            if (change < 1e-13) break;
+        }
+        x = full;
+        return true;
+    };
+
+    SVec<Scalar> x = SVec<Scalar>::Zero(n);
+    x.head(nvel) = q0;
+    SVec<Scalar> y = x;
+    if (!iterate(false, x) || !iterate(true, y)) return -5;
+
+    q = x.head(nvel);                 // unit norm, largest entry real positive
+    const SVec<Scalar> pi = x.tail(np);
+    a = y.head(nvel);
+
+    const SpMat Js = J.cast<Scalar>();
+    const SpMat Gs = G.cast<Scalar>();
+    const SVec<Scalar> Jq = Js * q;
+    const Scalar aq = (a.transpose() * q)(0);
+    if (scalar_abs(aq) == 0.0) return -8;
+    lambda = (a.transpose() * Jq)(0) / aq;
+    a /= aq;  // a^T q = 1
+
+    SVec<Scalar> r = Jq - Gs * pi - lambda * q;
+    const SVec<Scalar> div = D.cast<Scalar>() * q;
+    residual = std::sqrt(r.squaredNorm() + div.squaredNorm());
+    if (pressure) *pressure = pi;
+    return 0;
+}
+
+}  // namespace
+
+int StokesMac2D::assemble_linearized_pencil(Eigen::SparseMatrix<double>& J,
+                                            Eigen::SparseMatrix<double>& G,
+                                            Eigen::SparseMatrix<double>& D) const {
+        using Trip = Eigen::Triplet<double>;
+        const int nvel = nu_unknowns_ + nv_unknowns_;
+        // --- J = -D_u R as an explicit sparse matrix, by coloured probing.
+        // Every row depends only on unknowns within +-1 cell of it (u and v
+        // indexed by their own (i, j)), so a period-3 colouring per component
+        // separates the columns hit by one probe.
+        auto u_col = [&](int i, int j) { return (i >= 1 && i < nx_ && j >= 0 && j < ny_) ? u_unknown_idx(i, j) : -1; };
+        auto v_col = [&](int i, int j) { return (i >= 0 && i < nx_ && j >= 1 && j < ny_) ? v_unknown_idx(i, j) : -1; };
+        auto mod3 = [](int x) { return ((x % 3) + 3) % 3; };
+        std::vector<Trip> jt;
+        jt.reserve(static_cast<size_t>(nvel) * 14);
+        for (int comp = 0; comp < 2; ++comp)
+            for (int ci = 0; ci < 3; ++ci)
+                for (int cj = 0; cj < 3; ++cj) {
+                    Eigen::VectorXd e = Eigen::VectorXd::Zero(nvel);
+                    for (int j = 0; j <= ny_; ++j)
+                        for (int i = 0; i <= nx_; ++i) {
+                            if (mod3(i) != ci || mod3(j) != cj) continue;
+                            const int col = comp == 0 ? u_col(i, j) : v_col(i, j);
+                            if (col >= 0) e[col] = 1.0;
+                        }
+                    const Eigen::VectorXd y = linearized_raw_velocity_action(e);
+                    auto scatter_row = [&](int row, int i, int j) {
+                        const double val = y[row];
+                        if (val == 0.0) return;
+                        for (int dj = -1; dj <= 1; ++dj)
+                            for (int di = -1; di <= 1; ++di) {
+                                if (mod3(i + di) != ci || mod3(j + dj) != cj) continue;
+                                const int col = comp == 0 ? u_col(i + di, j + dj) : v_col(i + di, j + dj);
+                                if (col >= 0) jt.emplace_back(row, col, val);
+                                return;
+                            }
+                    };
+                    for (int j = 0; j < ny_; ++j)
+                        for (int i = 1; i < nx_; ++i) scatter_row(u_unknown_idx(i, j), i, j);
+                    for (int j = 1; j < ny_; ++j)
+                        for (int i = 0; i < nx_; ++i) scatter_row(v_unknown_idx(i, j), i, j);
+                }
+        J.resize(nvel, nvel);
+        J.setFromTriplets(jt.begin(), jt.end());
+        J.makeCompressed();
+        {
+            Eigen::VectorXd probe(nvel);
+            for (int k = 0; k < nvel; ++k) probe[k] = std::sin(0.37 * (k + 1)) + 0.25 * std::cos(1.3 * (k + 1));
+            const Eigen::VectorXd ref = linearized_raw_velocity_action(probe);
+            if ((J * probe - ref).norm() > 1e-10 * std::max(ref.norm(), 1.0)) return -7;
+        }
+
+        // --- gradient G (velocity x pressure) and divergence D with gauge row
+        std::vector<Trip> gt, dtr;
+        for (int j = 0; j < ny_; ++j)
+            for (int i = 1; i < nx_; ++i) {
+                gt.emplace_back(u_unknown_idx(i, j), p_idx(i, j), 1.0 / dx_);
+                gt.emplace_back(u_unknown_idx(i, j), p_idx(i - 1, j), -1.0 / dx_);
+            }
+        for (int j = 1; j < ny_; ++j)
+            for (int i = 0; i < nx_; ++i) {
+                gt.emplace_back(v_unknown_idx(i, j), p_idx(i, j), 1.0 / dy_);
+                gt.emplace_back(v_unknown_idx(i, j), p_idx(i, j - 1), -1.0 / dy_);
+            }
+        for (int j = 0; j < ny_; ++j)
+            for (int i = 0; i < nx_; ++i) {
+                if (i == 0 && j == 0) continue;  // gauge row p(0,0) = 0
+                const int row = p_idx(i, j);
+                if (i + 1 <= nx_ - 1) dtr.emplace_back(row, u_unknown_idx(i + 1, j), 1.0 / dx_);
+                if (i >= 1)           dtr.emplace_back(row, u_unknown_idx(i, j), -1.0 / dx_);
+                if (j + 1 <= ny_ - 1) dtr.emplace_back(row, v_unknown_idx(i, j + 1), 1.0 / dy_);
+                if (j >= 1)           dtr.emplace_back(row, v_unknown_idx(i, j), -1.0 / dy_);
+            }
+        G.resize(nvel, np_unknowns_);
+        D.resize(np_unknowns_, nvel);
+        G.setFromTriplets(gt.begin(), gt.end());
+        D.setFromTriplets(dtr.begin(), dtr.end());
+
+        return 0;
+}
+
+int StokesMac2D::refine_linearized_modes(int n_modes,
+                                         const double* lam_re, const double* lam_im,
+                                         const double* q_re_in, const double* q_im_in,
+                                         double* q_re_out, double* q_im_out,
+                                         double* a_re_out, double* a_im_out,
+                                         double* lam_re_out, double* lam_im_out,
+                                         double* residual_out) const {
+    try {
+        if (n_modes <= 0) return -2;
+        if (!lam_re || !lam_im || !q_re_in || !q_im_in || !q_re_out || !q_im_out ||
+            !a_re_out || !a_im_out || !lam_re_out || !lam_im_out || !residual_out) return -3;
+        using Trip = Eigen::Triplet<double>;
+        const int nvel = nu_unknowns_ + nv_unknowns_;
+
+        Eigen::SparseMatrix<double> J, G, D;
+        const int st_asm = assemble_linearized_pencil(J, G, D);
+        if (st_asm != 0) return st_asm;
+        const int gauge_p = p_idx(0, 0);
+
+        for (int k = 0; k < n_modes; ++k) {
+            const size_t off = static_cast<size_t>(k) * nvel;
+            double res = 0.0;
+            if (lam_im[k] == 0.0) {
+                SVec<double> q0 = Eigen::Map<const Eigen::VectorXd>(q_re_in + off, nvel);
+                SVec<double> q, a;
+                double lam = 0.0;
+                const int st = refine_mode<double>(J, G, D, gauge_p, lam_re[k], q0, q, a, lam, res);
+                if (st != 0) return st;
+                Eigen::Map<Eigen::VectorXd>(q_re_out + off, nvel) = q;
+                Eigen::Map<Eigen::VectorXd>(q_im_out + off, nvel).setZero();
+                Eigen::Map<Eigen::VectorXd>(a_re_out + off, nvel) = a;
+                Eigen::Map<Eigen::VectorXd>(a_im_out + off, nvel).setZero();
+                lam_re_out[k] = lam;
+                lam_im_out[k] = 0.0;
+            } else {
+                using C = std::complex<double>;
+                SVec<C> q0(nvel);
+                for (int i = 0; i < nvel; ++i) q0[i] = C(q_re_in[off + i], q_im_in[off + i]);
+                SVec<C> q, a;
+                C lam;
+                const int st = refine_mode<C>(J, G, D, gauge_p, C(lam_re[k], lam_im[k]), q0, q, a, lam, res);
+                if (st != 0) return st;
+                for (int i = 0; i < nvel; ++i) {
+                    q_re_out[off + i] = q[i].real();
+                    q_im_out[off + i] = q[i].imag();
+                    a_re_out[off + i] = a[i].real();
+                    a_im_out[off + i] = a[i].imag();
+                }
+                lam_re_out[k] = lam.real();
+                lam_im_out[k] = lam.imag();
+            }
+            residual_out[k] = res;
+        }
+        return 0;
+    } catch (...) {
+        return -99;
+    }
+}
+
+
+int StokesMac2D::solve_linearized_modes_shift_invert(int n_eigs, double sigma, int krylov_dim,
+                                                     double* lam_re, double* lam_im,
+                                                     double* x_re, double* x_im,
+                                                     double* a_re, double* a_im,
+                                                     double* residual,
+                                                     double* ritz_re, double* ritz_im,
+                                                     int* n_ritz) const {
+    try {
+        const int nvel = nu_unknowns_ + nv_unknowns_;
+        const int n = nvel + np_unknowns_;
+        if (n_eigs <= 0 || n_eigs > nvel || krylov_dim < n_eigs + 2) return -2;
+        krylov_dim = std::min(krylov_dim, nvel - 1);
+
+        Eigen::SparseMatrix<double> J, G, D;
+        const int st_asm = assemble_linearized_pencil(J, G, D);
+        if (st_asm != 0) return st_asm;
+        const int gauge_p = p_idx(0, 0);
+
+        // (A - sigma B), A = [J -G; D gauge], B = diag(I, 0)
+        std::vector<Eigen::Triplet<double>> trips;
+        for (int k = 0; k < J.outerSize(); ++k)
+            for (Eigen::SparseMatrix<double>::InnerIterator it(J, k); it; ++it)
+                trips.emplace_back(it.row(), it.col(), it.value());
+        for (int i = 0; i < nvel; ++i) trips.emplace_back(i, i, -sigma);
+        for (int k = 0; k < G.outerSize(); ++k)
+            for (Eigen::SparseMatrix<double>::InnerIterator it(G, k); it; ++it)
+                trips.emplace_back(it.row(), nvel + it.col(), -it.value());
+        for (int k = 0; k < D.outerSize(); ++k)
+            for (Eigen::SparseMatrix<double>::InnerIterator it(D, k); it; ++it)
+                trips.emplace_back(nvel + it.row(), it.col(), it.value());
+        trips.emplace_back(nvel + gauge_p, nvel + gauge_p, 1.0);
+        Eigen::SparseMatrix<double> M(n, n);
+        M.setFromTriplets(trips.begin(), trips.end());
+        M.makeCompressed();
+        Eigen::SparseLU<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> lu;
+        lu.analyzePattern(M);
+        lu.factorize(M);
+        if (lu.info() != Eigen::Success) return -5;
+
+        // T v = velocity part of (A - sigma B)^-1 [v; 0];  T q = q / (lambda - sigma)
+        Eigen::VectorXd rhs = Eigen::VectorXd::Zero(n);
+        auto apply_T = [&](const Eigen::VectorXd& v) -> Eigen::VectorXd {
+            rhs.head(nvel) = v;
+            Eigen::VectorXd x = lu.solve(rhs);
+            if (lu.info() != Eigen::Success) throw std::runtime_error("shift-invert solve failed");
+            return x.head(nvel);
+        };
+
+        Eigen::MatrixXd V(nvel, krylov_dim + 1);
+        Eigen::MatrixXd H = Eigen::MatrixXd::Zero(krylov_dim + 1, krylov_dim);
+        Eigen::VectorXd start(nvel);
+        for (int i = 0; i < nvel; ++i)
+            start[i] = std::sin(0.17 * (i + 1)) + 0.5 * std::cos(0.11 * (i + 1));
+        start = apply_T(start);  // start inside the divergence-free range of T
+        V.col(0) = start / start.norm();
+        int m = 0;
+        for (int j = 0; j < krylov_dim; ++j) {
+            Eigen::VectorXd w = apply_T(V.col(j));
+            for (int pass = 0; pass < 2; ++pass)
+                for (int i = 0; i <= j; ++i) {
+                    const double h = V.col(i).dot(w);
+                    H(i, j) += h;
+                    w -= h * V.col(i);
+                }
+            const double hn = w.norm();
+            H(j + 1, j) = hn;
+            m = j + 1;
+            if (hn < 1e-14) break;
+            V.col(j + 1) = w / hn;
+        }
+        if (m < n_eigs) return -6;
+
+        Eigen::EigenSolver<Eigen::MatrixXd> es(H.topLeftCorner(m, m), true);
+        if (es.info() != Eigen::Success) return -5;
+        const Eigen::VectorXcd mu = es.eigenvalues();
+        std::vector<int> order;
+        for (int i = 0; i < m; ++i)
+            if (std::abs(mu[i]) > 1e-300) order.push_back(i);
+        std::vector<std::complex<double>> lam_all(m);
+        for (int i = 0; i < m; ++i) lam_all[i] = sigma + 1.0 / mu[i];
+        std::sort(order.begin(), order.end(), [&](int x, int y) { return lam_all[x].real() > lam_all[y].real(); });
+        if (static_cast<int>(order.size()) < n_eigs) return -6;
+        if (n_ritz) *n_ritz = static_cast<int>(order.size());
+        if (ritz_re && ritz_im)
+            for (size_t i = 0; i < order.size(); ++i) {
+                ritz_re[i] = lam_all[order[i]].real();
+                ritz_im[i] = lam_all[order[i]].imag();
+            }
+
+        const Eigen::MatrixXcd Y = V.leftCols(m).cast<std::complex<double>>() * es.eigenvectors();
+        for (int k = 0; k < n_eigs; ++k) {
+            const int idx = order[k];
+            const size_t offx = static_cast<size_t>(k) * n;
+            const size_t offa = static_cast<size_t>(k) * nvel;
+            double res = 0.0;
+            if (std::abs(lam_all[idx].imag()) <= 1e-12 * (1.0 + std::abs(lam_all[idx]))) {
+                SVec<double> q0 = Y.col(idx).real(), q, a, pi;
+                double lam = 0.0;
+                const int st = refine_mode<double>(J, G, D, gauge_p, lam_all[idx].real(), q0, q, a, lam, res, &pi);
+                if (st != 0) return st;
+                Eigen::Map<Eigen::VectorXd>(x_re + offx, nvel) = q;
+                Eigen::Map<Eigen::VectorXd>(x_re + offx + nvel, np_unknowns_) = pi;
+                Eigen::Map<Eigen::VectorXd>(x_im + offx, n).setZero();
+                Eigen::Map<Eigen::VectorXd>(a_re + offa, nvel) = a;
+                Eigen::Map<Eigen::VectorXd>(a_im + offa, nvel).setZero();
+                lam_re[k] = lam;
+                lam_im[k] = 0.0;
+            } else {
+                using C = std::complex<double>;
+                SVec<C> q0 = Y.col(idx), q, a, pi;
+                C lam;
+                const int st = refine_mode<C>(J, G, D, gauge_p, lam_all[idx], q0, q, a, lam, res, &pi);
+                if (st != 0) return st;
+                for (int i = 0; i < nvel; ++i) {
+                    x_re[offx + i] = q[i].real();  x_im[offx + i] = q[i].imag();
+                    a_re[offa + i] = a[i].real();  a_im[offa + i] = a[i].imag();
+                }
+                for (int i = 0; i < np_unknowns_; ++i) {
+                    x_re[offx + nvel + i] = pi[i].real();
+                    x_im[offx + nvel + i] = pi[i].imag();
+                }
+                lam_re[k] = lam.real();
+                lam_im[k] = lam.imag();
+            }
+            residual[k] = res;
+        }
+        return 0;
+    } catch (...) {
+        return -99;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // C API
 // ---------------------------------------------------------------------------
@@ -1353,6 +1800,50 @@ extern "C" void stokes_mac_linear_solver_stats_c(void* handle, long long* steps,
     if (steps) *steps = s;
     if (cg_iterations) *cg_iterations = it;
     if (max_cg_iterations) *max_cg_iterations = mx;
+}
+
+extern "C" int stokes_mac_refine_linearized_modes_c(void* handle, int n_modes,
+                                                    const double* lam_re, const double* lam_im,
+                                                    const double* q_re, const double* q_im,
+                                                    double* q_re_out, double* q_im_out,
+                                                    double* a_re_out, double* a_im_out,
+                                                    double* lam_re_out, double* lam_im_out,
+                                                    double* residual_out) {
+    if (!handle) return -2;
+    return reinterpret_cast<StokesMac2D*>(handle)->refine_linearized_modes(
+        n_modes, lam_re, lam_im, q_re, q_im, q_re_out, q_im_out,
+        a_re_out, a_im_out, lam_re_out, lam_im_out, residual_out);
+}
+
+extern "C" double stokes_mac_steady_residual_inf_c(void* handle, const double* fu, const double* fv) {
+    if (!handle) return -1.0;
+    return reinterpret_cast<StokesMac2D*>(handle)->steady_residual_inf(fu, fv);
+}
+
+extern "C" int stokes_mac_linearized_eig_si_c(void* handle, int n_eigs, double sigma,
+                                               int krylov_dim,
+                                               double* lam_re, double* lam_im,
+                                               double* x_re, double* x_im,
+                                               double* a_re, double* a_im,
+                                               double* residual,
+                                               double* ritz_re, double* ritz_im,
+                                               int* n_ritz) {
+    if (!handle) return -2;
+    return reinterpret_cast<StokesMac2D*>(handle)->solve_linearized_modes_shift_invert(
+        n_eigs, sigma, krylov_dim, lam_re, lam_im, x_re, x_im, a_re, a_im,
+        residual, ritz_re, ritz_im, n_ritz);
+}
+
+extern "C" void stokes_mac_set_stabilization_c(void* handle, int m, const double* Q,
+                                               const double* W, const double* u_star,
+                                               double alpha) {
+    if (!handle) return;
+    reinterpret_cast<StokesMac2D*>(handle)->set_stabilization(m, Q, W, u_star, alpha);
+}
+
+extern "C" int stokes_mac_take_control_history_c(void* handle, double* out, int capacity_pairs) {
+    if (!handle) return 0;
+    return reinterpret_cast<StokesMac2D*>(handle)->take_control_history(out, capacity_pairs);
 }
 
 extern "C" void stokes_mac_free_c(void* handle) {

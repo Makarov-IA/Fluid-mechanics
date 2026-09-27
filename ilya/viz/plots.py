@@ -242,6 +242,67 @@ def save_divergence_plot(
     return path
 
 
+def save_stabilization_correction_plot(
+    t_history: list[float],
+    correction_history: list[float],
+    deviation_history: list[float],
+    alpha: float,
+    out_dir: Path,
+) -> Path:
+    """Plot the feedback correction ||delta_n||_inf and the deviation ||u^n - u_s||_inf."""
+    t_arr = np.asarray(t_history, dtype=np.float64)[: len(correction_history)]
+    corr = np.asarray(correction_history, dtype=np.float64)
+    dev = np.asarray(deviation_history, dtype=np.float64)
+    # Keep the per-bin maximum so short spikes survive the downsampling.
+    stride = max(1, len(corr) // 5000)
+    n_bins = len(corr) // stride
+    if n_bins > 0:
+        t_plot = t_arr[: n_bins * stride : stride]
+        corr_plot = corr[: n_bins * stride].reshape(n_bins, stride).max(axis=1)
+        dev_plot = dev[: n_bins * stride].reshape(n_bins, stride).max(axis=1)
+    else:
+        t_plot, corr_plot, dev_plot = t_arr, corr, dev
+
+    tiny = np.finfo(np.float64).tiny
+    fig, ax = plt.subplots(figsize=(8.0, 4.5))
+    ax.semilogy(
+        t_plot,
+        np.maximum(corr_plot, tiny),
+        color="#ad1457",
+        linewidth=1.2,
+        label=r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi(u^n - u_s)$",
+    )
+    ax.semilogy(
+        t_plot,
+        np.maximum(dev_plot, tiny),
+        color="#1565c0",
+        linewidth=1.0,
+        alpha=0.8,
+        label=r"$\|u^n - u_s\|_\infty$",
+    )
+    ax.set_title(rf"Stabilising correction vs time ($\alpha = {alpha:g}$)")
+    ax.set_xlabel("t")
+    ax.set_ylabel("max-norm")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(loc="best", fontsize=9)
+    if stride > 1:
+        ax.text(
+            0.98,
+            0.03,
+            f"(max over every {stride} steps)",
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=7,
+            color="gray",
+        )
+    fig.tight_layout()
+    path = out_dir / "stabilization_correction.png"
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    return path
+
+
 def save_velocity_change_plot(
     t_history: list[float],
     change_history: list[float],

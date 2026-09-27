@@ -43,7 +43,7 @@ linear_solver:
   fast_parallel: true      # solve u and v branches on two cores
 
 steady_solver:
-  initial_state_path: plots/run/fixed_time_state/state_internal.pkl
+  initial_state_path: plots_fast/run/fixed_time_state/state_internal.pkl
   max_newton_iters: 12
   residual_tol: 1.0e-8
   krylov_tol: 1.0e-6
@@ -54,17 +54,23 @@ steady_solver:
   min_step: 1.0e-3
 
 linearization:
-  state_path: plots/steady/state_internal.pkl
+  state_path: plots_fast/run/fixed_time_state/state_internal.pkl
   n_eigs: 6
   which: LR
+  sigma: 0.0          # shift of the shift-invert Arnoldi
+  krylov_dim: 80
 
 projected_run:
+  # forcing  — F − Proj(F) once (open loop);
+  # feedback — each step ∂u/∂t uses u*ₙ = uⁿ − α·Π(uⁿ − u_s), i.e. RHS −= δₙ/Δt
+  method: forcing
+  feedback_alpha: 1.0    # α ∈ (0, 2); 1 removes the unstable part every step
   t_end: 40.0
   n_steps: 150000
   video_fps: 30
   video_speed: 1
   save_velocity_change_plot: true
-  state_path: plots/steady/state_internal.pkl
-  eigenpairs_path: plots/linearized/eigenpairs.pkl
+  state_path: plots_direct/steady/state_internal.pkl
+  eigenpairs_path: plots_direct/linearized/eigenpairs.pkl
   real_threshold: 1.0e-8
   projection_rcond: 1.0e-12

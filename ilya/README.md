@@ -77,6 +77,11 @@ The project has four user-facing modes:
 All runtime parameters live in `config.yaml`.
 
 - `domain`, `grid`, `physics`: geometry and viscosity
+- `output_dir` (optional, top level): folder for all results. Without it each
+  mode writes next to its input: `steady` with
+  `initial_state_path: plots_fast/run/...` writes to `plots_fast/steady`,
+  `linearize` / `projected-run` follow `linearization.state_path` /
+  `projected_run.state_path`; `run` uses `plots`.
 - `run.t_end`, `run.n_steps`: time interval and step count for `make run`
 - `run.video_fps`, `run.video_speed`: video export settings
 - `run.save_velocity_change_plot`: opt-in plot of
@@ -92,8 +97,11 @@ All runtime parameters live in `config.yaml`.
   always uses `direct`.
 - `steady_solver.*`: Newton-GMRES parameters
 - `linearization.*`: linearization and eigenmode-selection parameters
-- `projected_run.*`: independent projected-run runtime settings and unstable-mode
-  forcing projection parameters
+- `linearization.sigma`, `linearization.krylov_dim`: shift and Krylov size of the
+  shift-invert eigensolver
+- `projected_run.*`: independent projected-run runtime settings and the
+  stabilisation: `method` (`forcing` | `feedback`), `feedback_alpha`,
+  `real_threshold` (modes with `Re λ` above it are stabilised)
 - `boundary`, `forcing`: symbolic expressions evaluated with NumPy
 
 ## Numerics
@@ -129,16 +137,53 @@ derivatives set to zero:
 R(U, p) = [(u · ∇)u - νΔu + ∇p - f, ∇·u]
 ```
 
-The C++ backend analytically linearizes the momentum residual and applies the
-velocity operator `L = -P D_momentum R(U*)`. On small systems it assembles the
-dense matrix and runs `Eigen::EigenSolver` exactly. On larger systems it uses
-matrix-free Arnoldi and runs `Eigen::EigenSolver` only on the small Hessenberg
-matrix. Here `P` is the MAC pressure projection enforcing `∇·u = 0`. Python only
-loads config/state and saves the result pickle. The saved eigenvectors use the
-internal MAC ordering
-`[u_vec, v_vec, p]`; pressure modes are recovered from the projection solve.
-Full dense eig stores an explicit `N_velocity × N_velocity` matrix, so it is
-only used below the C++ dense-size threshold.
+The C++ backend analytically linearizes the momentum residual,
+`J = -D_u R(U*)`, assembles it as a sparse matrix (exact coloured probing of
+the stencil) and works with the velocity–pressure pencil
+
+```text
+[ J  -G ] [q]         [q]
+[ D   0 ] [π] = λ ·   [0]        ⇔   L q = λ q,  L = P J,  ∇·q = 0
+```
+
+(`G` — pressure gradient, `D` — divergence with the gauge `p(0,0) = 0`).
+Eigenvalues with the largest real part are found by shift-invert Arnoldi
+around `linearization.sigma` (one sparse LU of `A − σB`), then every pair is
+refined by inverse iteration, and the matching **adjoint (left) vector** `a`
+(`aᵀL = λaᵀ`, normalised `aᵀq = 1`) is computed from the transposed LU.
+`plots/linearized/eigenpairs.pkl` stores `eigenvalues`, `eigenvectors`
+(`[u_vec, v_vec, p]`), `adjoint_vectors` (`[u_vec, v_vec]`) and the residuals
+`‖[Jq − Gπ − λq; Dq]‖`.
+
+### Stabilisation (`projected_run.method`)
+
+`forcing` (open loop): the forcing is replaced once by `F − Proj(F)`, the
+orthogonal projection onto the unstable modes removed.
+
+`feedback`: let `u_s` be the steady state, `q_k`, `a_k` the unstable right and
+adjoint modes and `Π = Q Wᵀ` the real oblique projector onto their span along
+the stable eigenspace (`Q = [Re q, Im q]`, `W` from `a` with `WᵀQ = I`).
+In every step the time derivative uses the velocity without the unstable part
+of the deviation,
+
+```text
+u*ₙ = uⁿ − δₙ,        δₙ = α · Π (uⁿ − u_s),
+
+(uⁿ⁺¹ − u*ₙ)/Δt + (uⁿ·∇)uⁿ − νΔuⁿ⁺¹ + ∇pⁿ⁺¹ = f,     ∇·uⁿ⁺¹ = 0,
+```
+
+i.e. the correction is moved to the right-hand side and convection keeps `uⁿ`:
+
+```text
+(uⁿ⁺¹ − uⁿ)/Δt + (uⁿ·∇)uⁿ − νΔuⁿ⁺¹ + ∇pⁿ⁺¹ = f − δₙ/Δt.
+```
+
+The matrix of the step is unchanged, so both linear solvers work.  `α ∈ (0, 2)`
+(`projected_run.feedback_alpha`, default 1): `α = 1` removes the unstable
+component of the deviation completely every step; `α/Δt` is the feedback
+gain.  `u_s` stays a steady solution (`δ = 0` there).  The run saves
+`stabilization_correction.png` with `‖δₙ‖∞` and `‖uⁿ − u_s‖∞` versus time.
+`steady` is never controlled.
 
 ## Внутренние Задачи
 

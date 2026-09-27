@@ -90,6 +90,8 @@ class SimConfig:
     linear_state_path: str = "plots/steady/state_internal.pkl"
     linear_n_eigs: int = 6
     linear_which: str = "LR"
+    linear_sigma: float = 0.0
+    linear_krylov_dim: int = 80
 
     projected_state_path: str = "plots/steady/state_internal.pkl"
     projected_eigenpairs_path: str = "plots/linearized/eigenpairs.pkl"
@@ -100,6 +102,10 @@ class SimConfig:
     projected_save_velocity_change_plot: bool | None = None
     projected_real_threshold: float = 1.0
     projected_projection_rcond: float = 1e-12
+    projected_method: str = "forcing"
+    projected_feedback_alpha: float = 1.0
+
+    output_dir: str | None = None
 
     linear_solver_method: str = "direct"
     linear_solver_fast_tol: float = 3e-15
@@ -155,6 +161,8 @@ class SimConfig:
             raise ValueError("linear_n_eigs must be positive")
         if self.linear_which not in ("LM", "SM", "LR", "SR", "LI", "SI"):
             raise ValueError("linear_which must be one of LM, SM, LR, SR, LI, SI")
+        if self.linear_krylov_dim < self.linear_n_eigs + 2:
+            raise ValueError("linearization.krylov_dim must be at least n_eigs + 2")
         if self.projected_projection_rcond < 0:
             raise ValueError("projected_projection_rcond must be non-negative")
         if self.projected_t_end is not None and self.projected_t_end <= 0:
@@ -165,6 +173,10 @@ class SimConfig:
             raise ValueError("projected_video_fps must be positive")
         if self.projected_video_speed is not None and self.projected_video_speed <= 0:
             raise ValueError("projected_video_speed must be positive")
+        if self.projected_method not in ("forcing", "feedback"):
+            raise ValueError("projected_run.method must be 'forcing' or 'feedback'")
+        if not (0.0 < self.projected_feedback_alpha < 2.0):
+            raise ValueError("projected_run.feedback_alpha must lie in (0, 2)")
         if self.linear_solver_method not in ("direct", "fast"):
             raise ValueError("linear_solver.method must be 'direct' or 'fast'")
         if self.linear_solver_fast_tol <= 0:
@@ -278,6 +290,8 @@ class SimConfig:
             linear_state_path=str(linear.get("state_path", "plots/steady/state_internal.pkl")),
             linear_n_eigs=linear.get("n_eigs", 6),
             linear_which=str(linear.get("which", "LR")),
+            linear_sigma=float(linear.get("sigma", 0.0)),
+            linear_krylov_dim=int(linear.get("krylov_dim", 80)),
             projected_state_path=str(
                 projected.get("state_path", "plots/steady/state_internal.pkl")
             ),
@@ -295,6 +309,9 @@ class SimConfig:
             ),
             projected_real_threshold=projected.get("real_threshold", 1.0),
             projected_projection_rcond=projected.get("projection_rcond", 1e-12),
+            projected_method=str(projected.get("method", "forcing")),
+            projected_feedback_alpha=float(projected.get("feedback_alpha", 1.0)),
+            output_dir=(str(data["output_dir"]) if data.get("output_dir") else None),
             linear_solver_method=str(linear_solver.get("method", "direct")),
             linear_solver_fast_tol=float(linear_solver.get("fast_tol", 3e-15)),
             linear_solver_fast_extrapolation=int(linear_solver.get("fast_extrapolation", 3)),

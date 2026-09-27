@@ -31,6 +31,9 @@ class LinearizedEigenResult:
     eig_message: str
     eigenvalues: np.ndarray
     eigenvectors: np.ndarray
+    adjoint_vectors: np.ndarray
+    residuals: np.ndarray
+    ritz_values: np.ndarray
     u_modes: np.ndarray
     v_modes: np.ndarray
     p_modes: np.ndarray
@@ -87,10 +90,9 @@ def solve_linearized_eigenmodes(
             f"({velocity_size})"
         )
 
-    dense_equivalent_bytes = velocity_size * velocity_size * np.dtype(np.float64).itemsize
     console.print(
         f"  operator size: {velocity_size} velocity unknowns   "
-        f"dense equivalent ≈ {dense_equivalent_bytes / 1024**3:.2f} GiB"
+        f"shift-invert Arnoldi: sigma = {cfg.linear_sigma}, Krylov dim {cfg.linear_krylov_dim}"
     )
 
     lib_path = find_solver_lib(project_dir)
@@ -98,27 +100,24 @@ def solve_linearized_eigenmodes(
     with StokesMACLib(lib_path, cfg.nx, cfg.ny, cfg.lx, cfg.ly, cfg.nu, cfg.dt) as solver:
         solver.set_bc_arrays(cfg.make_bc_arrays())
         solver.set_state(mac_state.u_vec, mac_state.v_vec, mac_state.p)
-        (
-            eigenvalues,
-            eigenvectors,
-            base_residual_inf,
-            matvec_count,
-            dense_operator_bytes,
-        ) = solver.solve_linearized_eig(cfg.linear_n_eigs, cfg.linear_which, fu0, fv0)
+        base_residual_inf = solver.steady_residual_inf(fu0, fv0)
+        eig = solver.solve_linearized_eig_shift_invert(
+            cfg.linear_n_eigs, cfg.linear_sigma, cfg.linear_krylov_dim
+        )
 
+    eigenvalues = eig["eigenvalues"]
+    eigenvectors = eig["eigenvectors"]
+    matvec_count = int(cfg.linear_krylov_dim)
+    dense_operator_bytes = 0
     eig_message = (
-        "C++ dense Eigen::EigenSolver completed"
-        if matvec_count == velocity_size
-        else f"C++ Arnoldi completed; Eigen::EigenSolver used on {matvec_count}×{matvec_count} Hessenberg"
+        f"shift-invert Arnoldi (sigma={cfg.linear_sigma}) + inverse-iteration refinement; "
+        f"max residual {float(np.max(eig['residuals'])):.1e}"
     )
     console.print(
         f"  base state: [dim]{state_path}[/dim]   "
         f"||R(U0)||∞ = {base_residual_inf:.2e}"
     )
-    console.print(
-        f"  eig backend: {eig_message}   "
-        f"operator storage ≈ {dense_operator_bytes / 1024**3:.2f} GiB"
-    )
+    console.print(f"  eig backend: {eig_message}")
 
     u_modes, v_modes, p_modes = full_mode_grids(cfg, eigenvectors)
     return LinearizedEigenResult(
@@ -130,6 +129,9 @@ def solve_linearized_eigenmodes(
         eig_message=eig_message,
         eigenvalues=eigenvalues,
         eigenvectors=eigenvectors,
+        adjoint_vectors=eig["adjoint_vectors"],
+        residuals=eig["residuals"],
+        ritz_values=eig["ritz_values"],
         u_modes=u_modes,
         v_modes=v_modes,
         p_modes=p_modes,
@@ -148,7 +150,8 @@ def save_linearized_eigenmodes(
         "operator": "steady_ns_velocity_projection",
         "operator_definition": (
             "L=-P D_momentum R(U0), where R is the stationary MAC Navier-Stokes "
-            "residual and P enforces divergence-free velocity through pressure"
+            "residual and P enforces divergence-free velocity through pressure; "
+            "eigenpairs of the pencil [J -G; D 0] x = lambda [I 0; 0 0] x"
         ),
         "state_path": str(result.state_path),
         "state_metadata": result.state_metadata,
@@ -159,7 +162,9 @@ def save_linearized_eigenmodes(
         "nu": cfg.nu,
         "n_eigs": len(result.eigenvalues),
         "which": cfg.linear_which,
-        "eigen_solver": "C++ Eigen::EigenSolver",
+        "eigen_solver": "C++ shift-invert Arnoldi + inverse iteration (Eigen::SparseLU)",
+        "sigma": cfg.linear_sigma,
+        "krylov_dim": cfg.linear_krylov_dim,
         "linearization": "analytic_cpp",
         "base_residual_inf": result.base_residual_inf,
         "matvec_count": result.matvec_count,
@@ -168,6 +173,9 @@ def save_linearized_eigenmodes(
         "eig_message": result.eig_message,
         "eigenvalues": result.eigenvalues,
         "eigenvectors": result.eigenvectors,
+        "adjoint_vectors": result.adjoint_vectors,
+        "residuals": result.residuals,
+        "ritz_values": result.ritz_values,
         "u_modes": result.u_modes,
         "v_modes": result.v_modes,
         "p_modes": result.p_modes,
@@ -176,6 +184,7 @@ def save_linearized_eigenmodes(
         "u_mode_shape": "(mode, nx-1, ny)",
         "v_mode_shape": "(mode, nx, ny-1)",
         "p_mode_shape": "(mode, nx, ny)",
+        "adjoint_ordering": "[u_vec, v_vec], normalised so that a_k^T q_k = 1",
     }
     with path.open("wb") as fh:
         pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)

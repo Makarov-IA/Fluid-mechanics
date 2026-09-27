@@ -148,8 +148,51 @@ public:
     // Returns 0 on success, -1 if the fast solver is unavailable, -2 on bad input.
     int set_linear_solver(int kind, double tol, int extrapolation, bool parallel);
 
+    // ||R(U)||_inf of the stationary residual at the current state.
+    double steady_residual_inf(const double* fu, const double* fv) const;
+
     // Fast-solver statistics; all zero when the direct solver is active.
     void linear_solver_stats(long* steps, long* cg_iterations, int* max_cg_iterations) const;
+
+    // Refine eigenpairs of the linearised operator L (around the current state)
+    // by shifted inverse iteration on the velocity-pressure pencil
+    //   [J -G; D 0] [q; pi] = lambda [q; 0],   J = -D_u R,
+    // and compute the matching left (adjoint) vectors a:  a^T L = lambda a^T,
+    // normalised so that a^T q = 1 (plain transpose).  Velocity parts only,
+    // column-major (velocity_size x n_modes).  Returns 0 on success.
+    int refine_linearized_modes(int n_modes,
+                                const double* lam_re, const double* lam_im,
+                                const double* q_re_in, const double* q_im_in,
+                                double* q_re_out, double* q_im_out,
+                                double* a_re_out, double* a_im_out,
+                                double* lam_re_out, double* lam_im_out,
+                                double* residual_out) const;
+
+    // Eigenpairs of L with the largest real part by shift-invert Arnoldi on
+    // the velocity-pressure pencil (one sparse LU of A - sigma B), each one
+    // refined by inverse iteration, together with its adjoint vector a
+    // (a^T q = 1).  x: full [u; v; p] modes, column-major (N x n_eigs);
+    // a: velocity parts (velocity_size x n_eigs); ritz: all m Ritz values of
+    // the Krylov space sorted by real part (capacity krylov_dim).
+    int solve_linearized_modes_shift_invert(int n_eigs, double sigma, int krylov_dim,
+                                            double* lam_re, double* lam_im,
+                                            double* x_re, double* x_im,
+                                            double* a_re, double* a_im,
+                                            double* residual,
+                                            double* ritz_re, double* ritz_im,
+                                            int* n_ritz) const;
+
+    // Feedback stabilisation around a steady state u*.  Every step uses
+    //   u*_n = u^n - alpha * Pi (u^n - u*),   Pi = Q W^T,
+    // in the time derivative, i.e. the RHS gets  -(alpha/dt) Pi (u^n - u*);
+    // convection still uses u^n.  Q, W: velocity_size x m, column-major,
+    // W^T Q = I.  m = 0 disables it.
+    void set_stabilization(int m, const double* Q, const double* W,
+                           const double* u_star, double alpha);
+
+    // Copy the recorded per-step pairs (||delta_n||_inf, ||u^n - u*||_inf),
+    // delta_n = alpha * Pi (u^n - u*), then clear them.  Returns pairs copied.
+    int take_control_history(double* out, int capacity_pairs);
 
     int solve_linearized_eigenmodes(int n_eigs,
                                     const char* which,
@@ -222,6 +265,13 @@ private:
     std::unique_ptr<FastStokesSolver> fast_solver_;  // non-null -> used by steps
 #endif
 
+    // Feedback stabilisation (see set_stabilization)
+    int                 stab_m_ = 0;
+    double              stab_alpha_ = 0.0;
+    Eigen::MatrixXd     stab_Q_, stab_W_;
+    Eigen::VectorXd     stab_ustar_, stab_dev_, stab_coef_, stab_delta_;
+    std::vector<double> control_history_;
+
     // -----------------------------------------------------------------------
     // Pre-allocated work buffers — avoid per-step heap allocation
     // -----------------------------------------------------------------------
@@ -277,6 +327,13 @@ private:
 
     // Solve system_mat_ * sol_ = rhs_ with the selected linear solver.
     void solve_system();
+    // Subtract (alpha/dt) Pi (u^n - u*) from the velocity RHS, if enabled.
+    void apply_stabilization_to_rhs();
+    // J = -D_u R (velocity x velocity), pressure gradient G and divergence D
+    // (gauge row p(0,0) left empty) around the current state.
+    int assemble_linearized_pencil(Eigen::SparseMatrix<double>& J,
+                                   Eigen::SparseMatrix<double>& G,
+                                   Eigen::SparseMatrix<double>& D) const;
     void factorize_system();
 
     // Apply Dirichlet boundary conditions to the u and v fields.
@@ -297,7 +354,6 @@ private:
 
     // Return max|div u| over all non-gauge pressure cells.
     double max_divergence() const;
-    double steady_residual_inf(const double* fu, const double* fv) const;
     Eigen::SparseMatrix<double> build_projection_matrix() const;
     Eigen::VectorXd project_velocity_rhs(
         const SparseSystemSolver& solver,

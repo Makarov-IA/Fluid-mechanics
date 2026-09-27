@@ -16,6 +16,7 @@ from simulation.linearized import (
     solve_linearized_eigenmodes,
 )
 from simulation.projected_run import (
+    build_feedback_stabilization,
     build_projected_run,
     resolve_projected_eigenpairs_path,
     resolve_projected_state_path,
@@ -34,6 +35,7 @@ from viz.plots import (
     save_divergence_plot,
     save_final_figure,
     save_iterate_change_plot,
+    save_stabilization_correction_plot,
     save_mac_state_pickle,
     save_state_pickle,
     save_velocity_field_sequence,
@@ -61,6 +63,25 @@ def _resolve_project_path(path_text: str) -> Path:
     if not path.is_absolute():
         path = PROJECT_DIR / path
     return path
+
+
+def _output_root(cfg: SimConfig, input_path_text: str | None) -> Path:
+    """Folder that receives this mode's results.
+
+    ``output_dir`` from the config wins.  Otherwise it is the top-level folder
+    of the mode's input file inside the project (``plots_fast/run/...`` ->
+    ``plots_fast``), falling back to ``plots``.
+    """
+    if cfg.output_dir:
+        return _resolve_project_path(cfg.output_dir)
+    if input_path_text:
+        try:
+            rel = _resolve_project_path(input_path_text).resolve().relative_to(PROJECT_DIR.resolve())
+        except ValueError:
+            rel = None
+        if rel is not None and len(rel.parts) > 1:
+            return PROJECT_DIR / rel.parts[0]
+    return PROJECT_DIR / "plots"
 
 
 def _cell_centres(cfg: SimConfig) -> tuple[np.ndarray, np.ndarray]:
@@ -169,10 +190,13 @@ def _print_linearization_config(cfg: SimConfig) -> None:
     )
     table.add_row(
         "Operator",
-        "dense L = -P D_momentum R(U0), analytic linearization",
+        "L = -P D_momentum R(U0): pencil [J -G; D 0], analytic J",
     )
     table.add_row("Eigenpairs", f"{cfg.linear_n_eigs}  ({cfg.linear_which})")
-    table.add_row("Eigen solver", "C++ dense eig / Arnoldi")
+    table.add_row(
+        "Eigen solver",
+        f"shift-invert Arnoldi, σ = {cfg.linear_sigma}, Krylov dim {cfg.linear_krylov_dim}",
+    )
     console.print(
         Panel(table, title="[bold]Linearized Navier-Stokes Eigenmodes[/bold]", expand=False)
     )
@@ -188,7 +212,14 @@ def _print_projected_run_config(cfg: SimConfig) -> None:
     table.add_row("Start state", str(state_path))
     table.add_row("Eigenpairs", str(eigenpairs_path))
     table.add_row("Cutoff", f"Re(λ) > {cfg.projected_real_threshold}")
-    table.add_row("Projection rcond", f"{cfg.projected_projection_rcond:.1e}")
+    if cfg.projected_method == "feedback":
+        table.add_row(
+            "Method",
+            f"feedback: u*ₙ = uⁿ − α·Π(uⁿ − u_s) in ∂u/∂t, α = {cfg.projected_feedback_alpha}",
+        )
+    else:
+        table.add_row("Method", "forcing: F − Proj(F) (open loop)")
+        table.add_row("Projection rcond", f"{cfg.projected_projection_rcond:.1e}")
     table.add_row("t_end", f"{cfg.t_end}")
     table.add_row("dt", f"{cfg.dt:.2e}")
     table.add_row("n_steps", f"{cfg.n_steps:,}")
@@ -228,7 +259,8 @@ def _run_simulation(cfg: SimConfig) -> None:
                 f"saved dt={float(saved_dt):.3e}, new dt={cfg.dt:.3e}"
             )
 
-    out_dir = PROJECT_DIR / "plots" / "run"
+    out_dir = _output_root(cfg, None) / "run"
+    console.print(f"  output: [dim]{out_dir}[/dim]")
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(cfg)
 
@@ -356,21 +388,37 @@ def _run_projected_run(cfg: SimConfig) -> None:
     _print_projected_run_config(runtime_cfg)
 
     lib_path = find_solver_lib(PROJECT_DIR)
-    out_dir = PROJECT_DIR / "plots" / "projected_run"
+    out_dir = _output_root(runtime_cfg, runtime_cfg.projected_state_path) / "projected_run"
+    console.print(f"  output: [dim]{out_dir}[/dim]")
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(runtime_cfg)
 
-    initial_state, force_modifier, projection_info = build_projected_run(
-        runtime_cfg,
-        PROJECT_DIR,
-    )
+    force_modifier = None
+    stabilization = None
+    if runtime_cfg.projected_method == "feedback":
+        initial_state, stabilization, projection_info = build_feedback_stabilization(
+            runtime_cfg,
+            PROJECT_DIR,
+        )
+        modes = ", ".join(
+            f"{lam.real:.4f}{lam.imag:+.4f}i" for lam in projection_info.selected_eigenvalues
+        )
+        console.print(
+            f"  feedback on {len(projection_info.selected_indices)} mode(s) [{modes}]   "
+            f"projector rank: {projection_info.basis_rank}   α = {runtime_cfg.projected_feedback_alpha}"
+        )
+    else:
+        initial_state, force_modifier, projection_info = build_projected_run(
+            runtime_cfg,
+            PROJECT_DIR,
+        )
+        console.print(
+            "  selected modes: "
+            f"{len(projection_info.selected_indices)}   "
+            f"basis rank: {projection_info.basis_rank}   "
+            f"removed |force|: {projection_info.removed_norm:.3e} / {projection_info.force_norm:.3e}"
+        )
     projection_path = save_projection_info(projection_info, out_dir)
-    console.print(
-        "  selected modes: "
-        f"{len(projection_info.selected_indices)}   "
-        f"basis rank: {projection_info.basis_rank}   "
-        f"removed |force|: {projection_info.removed_norm:.3e} / {projection_info.force_norm:.3e}"
-    )
 
     result = run_simulation(
         runtime_cfg,
@@ -380,6 +428,7 @@ def _run_projected_run(cfg: SimConfig) -> None:
         initial_state=initial_state,
         force_modifier=force_modifier,
         description="Projected run",
+        stabilization=stabilization,
     )
     snapshots = result.snapshots
     final_snapshot = snapshots[-1]
@@ -392,6 +441,15 @@ def _run_projected_run(cfg: SimConfig) -> None:
             velocity_change_path = save_velocity_change_plot(
                 result.t_history,
                 result.velocity_change_history,
+                out_dir,
+            )
+        correction_path: Path | None = None
+        if result.correction_history:
+            correction_path = save_stabilization_correction_plot(
+                result.t_history,
+                result.correction_history,
+                result.deviation_history,
+                runtime_cfg.projected_feedback_alpha,
                 out_dir,
             )
         center_velocity_path = save_center_velocity_plot(
@@ -446,6 +504,8 @@ def _run_projected_run(cfg: SimConfig) -> None:
     table.add_column(style="dim")
     table.add_row("✓ projection", str(projection_path))
     table.add_row("✓ divergence", str(divergence_path))
+    if correction_path is not None:
+        table.add_row("✓ correction |δₙ|(t)", str(correction_path))
     if velocity_change_path is not None:
         table.add_row("✓ velocity-change", str(velocity_change_path))
     table.add_row("✓ control-point velocity", str(center_velocity_path))
@@ -462,7 +522,8 @@ def _run_projected_run(cfg: SimConfig) -> None:
 def _run_steady(cfg: SimConfig) -> None:
     _print_steady_config(cfg)
 
-    out_dir = PROJECT_DIR / "plots" / "steady"
+    out_dir = _output_root(cfg, cfg.steady_initial_state_path) / "steady"
+    console.print(f"  output: [dim]{out_dir}[/dim]")
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(cfg)
 
@@ -532,7 +593,8 @@ def _run_steady(cfg: SimConfig) -> None:
 def _run_linearize(cfg: SimConfig) -> None:
     _print_linearization_config(cfg)
 
-    out_dir = PROJECT_DIR / "plots" / "linearized"
+    out_dir = _output_root(cfg, cfg.linear_state_path) / "linearized"
+    console.print(f"  output: [dim]{out_dir}[/dim]")
     result = solve_linearized_eigenmodes(cfg, PROJECT_DIR)
     eigen_path = save_linearized_eigenmodes(result, cfg, out_dir)
 
@@ -541,14 +603,12 @@ def _run_linearize(cfg: SimConfig) -> None:
     table.add_column(style="white")
     table.add_row("✓ eigenpairs", str(eigen_path))
     table.add_row("base ||R(U0)||∞", f"{result.base_residual_inf:.2e}")
-    table.add_row("operator matvecs", f"{result.matvec_count}")
-    table.add_row("operator storage", f"{result.dense_operator_bytes / 1024**3:.2f} GiB")
     table.add_row("eig", result.eig_message)
 
     for idx, value in enumerate(result.eigenvalues):
         table.add_row(
             f"λ{idx}",
-            f"{value.real:.6e} {value.imag:+.6e}i",
+            f"{value.real:.6e} {value.imag:+.6e}i   (residual {result.residuals[idx]:.1e})",
         )
 
     console.print(Panel(table, title="[bold]Saved files[/bold]", expand=False))

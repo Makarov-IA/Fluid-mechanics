@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from rich.console import Console
@@ -21,6 +22,9 @@ from rich.progress import (
 from solver.config import MacState, SimConfig, Snapshot
 from solver.lib import StokesMACLib
 
+if TYPE_CHECKING:
+    from simulation.projected_run import FeedbackStabilization
+
 console = Console()
 
 
@@ -33,6 +37,9 @@ class SimulationResult:
     t_history: list[float]
     div_history: list[float]
     velocity_change_history: list[float]
+    # Feedback stabilisation only: per step ||delta_n||_inf and ||u^n - u*||_inf
+    correction_history: list[float] = field(default_factory=list)
+    deviation_history: list[float] = field(default_factory=list)
 
 
 def _cell_centred_velocity(
@@ -92,6 +99,7 @@ def run_simulation(
     ]
     | None = None,
     description: str = "Simulation",
+    stabilization: FeedbackStabilization | None = None,
 ) -> SimulationResult:
     """Run the time integration using batch C++ steps."""
     snapshots: list[Snapshot] = []
@@ -99,6 +107,8 @@ def run_simulation(
     t_history: list[float] = []
     div_history: list[float] = []
     velocity_change_history: list[float] = []
+    correction_history: list[float] = []
+    deviation_history: list[float] = []
     converged = False
     n_batches = -(-cfg.n_steps // cfg.frame_every)
 
@@ -134,6 +144,13 @@ def run_simulation(
             )
             if initial_state is not None:
                 solver.set_state(initial_state.u_vec, initial_state.v_vec, initial_state.p)
+            if stabilization is not None:
+                solver.set_stabilization(
+                    stabilization.basis,
+                    stabilization.adjoint,
+                    stabilization.u_star,
+                    stabilization.alpha,
+                )
 
             step_done = 0
             for batch_start in range(0, cfg.n_steps, cfg.frame_every):
@@ -167,6 +184,10 @@ def run_simulation(
                 )
                 div_history.extend(divs.tolist())
                 velocity_change_history.extend(changes.tolist())
+                if stabilization is not None:
+                    corr, dev = solver.take_control_history(batch_n)
+                    correction_history.extend(corr.tolist())
+                    deviation_history.extend(dev.tolist())
 
                 p, u, v = solver.get_fields()
                 u_vec, v_vec, p_vec = solver.get_state()
@@ -223,4 +244,6 @@ def run_simulation(
         t_history=t_history,
         div_history=div_history,
         velocity_change_history=velocity_change_history,
+        correction_history=correction_history,
+        deviation_history=deviation_history,
     )

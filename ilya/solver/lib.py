@@ -256,6 +256,136 @@ class StokesMACLib:
         )
         return u_arr, v_arr, p_arr
 
+    def refine_linearized_modes(
+        self,
+        eigenvalues: np.ndarray,
+        velocity_modes: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Refine eigenpairs around the current state and compute adjoint modes.
+
+        velocity_modes: complex array (velocity_size, n_modes).
+        Returns (eigenvalues, right modes q, left modes a with a^T q = 1,
+        residuals ||[J q - G pi - lambda q; D q]||).
+        """
+        lam = np.asarray(eigenvalues, dtype=np.complex128)
+        modes = np.asarray(velocity_modes, dtype=np.complex128)
+        nvel = self._nu + self._nv
+        n_modes = lam.shape[0]
+        if modes.shape != (nvel, n_modes):
+            raise ValueError(f"velocity_modes must have shape {(nvel, n_modes)}, got {modes.shape}")
+        lam_re = np.ascontiguousarray(lam.real)
+        lam_im = np.ascontiguousarray(lam.imag)
+        q_re = np.ascontiguousarray(modes.real.T)
+        q_im = np.ascontiguousarray(modes.imag.T)
+        outs = [np.empty((n_modes, nvel)) for _ in range(4)]
+        lam_re_out = np.empty(n_modes)
+        lam_im_out = np.empty(n_modes)
+        residuals = np.empty(n_modes)
+        status = self._dll.stokes_mac_refine_linearized_modes_c(
+            self._handle,
+            ct.c_int(n_modes),
+            self._double_ptr(lam_re),
+            self._double_ptr(lam_im),
+            self._double_ptr(q_re),
+            self._double_ptr(q_im),
+            *(self._double_ptr(o) for o in outs),
+            self._double_ptr(lam_re_out),
+            self._double_ptr(lam_im_out),
+            self._double_ptr(residuals),
+        )
+        if status != 0:
+            raise RuntimeError(f"C++ mode refinement failed with status {status}")
+        q = (outs[0] + 1j * outs[1]).T
+        a = (outs[2] + 1j * outs[3]).T
+        return lam_re_out + 1j * lam_im_out, q, a, residuals
+
+    def steady_residual_inf(self, fu: np.ndarray | None, fv: np.ndarray | None) -> float:
+        """Return ||R(U)||_inf of the stationary residual at the current state."""
+        fu_arr, fv_arr = self._force_arrays(fu, fv)
+        return float(
+            self._dll.stokes_mac_steady_residual_inf_c(
+                self._handle,
+                self._maybe_double_ptr(fu_arr),
+                self._maybe_double_ptr(fv_arr),
+            )
+        )
+
+    def solve_linearized_eig_shift_invert(
+        self,
+        n_eigs: int,
+        sigma: float,
+        krylov_dim: int,
+    ) -> dict[str, np.ndarray]:
+        """Rightmost eigenpairs of the linearised operator with adjoint vectors.
+
+        Shift-invert Arnoldi around ``sigma`` on the velocity-pressure pencil,
+        each pair refined by inverse iteration.  Returns eigenvalues, full modes
+        (N, n_eigs) in [u_vec, v_vec, p] order, adjoint velocity modes
+        (velocity_size, n_eigs) with a^T q = 1, residuals and all Ritz values.
+        """
+        nvel = self._nu + self._nv
+        full = nvel + self._np
+        lam_re = np.empty(n_eigs)
+        lam_im = np.empty(n_eigs)
+        x_re = np.empty((n_eigs, full))
+        x_im = np.empty((n_eigs, full))
+        a_re = np.empty((n_eigs, nvel))
+        a_im = np.empty((n_eigs, nvel))
+        residual = np.empty(n_eigs)
+        ritz_re = np.empty(krylov_dim)
+        ritz_im = np.empty(krylov_dim)
+        n_ritz = ct.c_int(0)
+        status = self._dll.stokes_mac_linearized_eig_si_c(
+            self._handle,
+            ct.c_int(n_eigs),
+            ct.c_double(sigma),
+            ct.c_int(krylov_dim),
+            *(self._double_ptr(arr) for arr in (lam_re, lam_im, x_re, x_im, a_re, a_im, residual, ritz_re, ritz_im)),
+            ct.byref(n_ritz),
+        )
+        if status != 0:
+            raise RuntimeError(f"C++ shift-invert eigen solve failed with status {status}")
+        k = n_ritz.value
+        return {
+            "eigenvalues": lam_re + 1j * lam_im,
+            "eigenvectors": (x_re + 1j * x_im).T,
+            "adjoint_vectors": (a_re + 1j * a_im).T,
+            "residuals": residual,
+            "ritz_values": ritz_re[:k] + 1j * ritz_im[:k],
+        }
+
+    def set_stabilization(
+        self,
+        basis: np.ndarray,
+        adjoint: np.ndarray,
+        u_star: np.ndarray,
+        alpha: float,
+    ) -> None:
+        """Enable feedback stabilisation: RHS -= (alpha/dt) Q W^T (u^n - u*)."""
+        nvel = self._nu + self._nv
+        q = np.asfortranarray(basis, dtype=np.float64)
+        w = np.asfortranarray(adjoint, dtype=np.float64)
+        u = self._double_array(u_star)
+        if q.ndim != 2 or q.shape[0] != nvel or w.shape != q.shape or u.shape != (nvel,):
+            raise ValueError("stabilization basis/adjoint must be (velocity_size, m), u_star (velocity_size,)")
+        self._stab_arrays = (q, w, u)
+        self._dll.stokes_mac_set_stabilization_c(
+            self._handle,
+            ct.c_int(q.shape[1]),
+            self._double_ptr(q),
+            self._double_ptr(w),
+            self._double_ptr(u),
+            ct.c_double(alpha),
+        )
+
+    def take_control_history(self, capacity: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return (||delta_n||_inf, ||u^n - u*||_inf) recorded since the last call."""
+        out = np.empty((max(capacity, 0), 2), dtype=np.float64)
+        n = self._dll.stokes_mac_take_control_history_c(
+            self._handle, self._double_ptr(out), ct.c_int(out.shape[0])
+        )
+        return out[:n, 0].copy(), out[:n, 1].copy()
+
     def solve_linearized_eig(
         self,
         n_eigs: int,
@@ -494,6 +624,39 @@ class StokesMACLib:
             ct.POINTER(ct.c_longlong),
         ]
         dll.stokes_mac_linearized_eig_c.restype = ct.c_int
+
+        dll.stokes_mac_refine_linearized_modes_c.argtypes = [
+            ct.c_void_p,
+            ct.c_int,
+            *([double_ptr] * 11),
+        ]
+        dll.stokes_mac_refine_linearized_modes_c.restype = ct.c_int
+
+        dll.stokes_mac_steady_residual_inf_c.argtypes = [ct.c_void_p, double_ptr, double_ptr]
+        dll.stokes_mac_steady_residual_inf_c.restype = ct.c_double
+
+        dll.stokes_mac_linearized_eig_si_c.argtypes = [
+            ct.c_void_p,
+            ct.c_int,
+            ct.c_double,
+            ct.c_int,
+            *([double_ptr] * 9),
+            ct.POINTER(ct.c_int),
+        ]
+        dll.stokes_mac_linearized_eig_si_c.restype = ct.c_int
+
+        dll.stokes_mac_set_stabilization_c.argtypes = [
+            ct.c_void_p,
+            ct.c_int,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            ct.c_double,
+        ]
+        dll.stokes_mac_set_stabilization_c.restype = None
+
+        dll.stokes_mac_take_control_history_c.argtypes = [ct.c_void_p, double_ptr, ct.c_int]
+        dll.stokes_mac_take_control_history_c.restype = ct.c_int
 
         dll.stokes_mac_solve_steady_c.argtypes = [
             ct.c_void_p,
