@@ -182,17 +182,21 @@ public:
                                             double* ritz_re, double* ritz_im,
                                             int* n_ritz) const;
 
-    // Feedback stabilisation around a steady state u*.  Every step uses
-    //   u*_n = u^n - alpha * Pi (u^n - u*),   Pi = Q W^T,
-    // in the time derivative, i.e. the RHS gets  -(alpha/dt) Pi (u^n - u*);
-    // convection still uses u^n.  Q, W: velocity_size x m, column-major,
-    // W^T Q = I.  m = 0 disables it.
+    // Feedback stabilisation.  Every step uses
+    //   u*_n = u^n - delta_n,   delta_n = alpha * Pi (u^n - u_ref),   Pi = Q W^T,
+    // in the time derivative, i.e. the RHS gets  -delta_n / dt;  convection
+    // still uses u^n.  u_ref = 0 projects the field itself, u_ref = u_s its
+    // deviation from the steady state.  u_diag (NULL -> u_ref) is only used
+    // for the recorded deviation ||u^n - u_diag||_inf.  Q, W: velocity_size x m,
+    // column-major, W^T Q = I.  m = 0 disables it.
     void set_stabilization(int m, const double* Q, const double* W,
-                           const double* u_star, double alpha);
+                           const double* u_ref, const double* u_diag, double alpha);
 
-    // Copy the recorded per-step pairs (||delta_n||_inf, ||u^n - u*||_inf),
-    // delta_n = alpha * Pi (u^n - u*), then clear them.  Returns pairs copied.
-    int take_control_history(double* out, int capacity_pairs);
+    // Copy the recorded per-step records
+    //   (||delta_n||_inf, ||u^n - u_diag||_inf, ||f_c||_2 / ||F + f_c||_2),
+    // f_c = -delta_n / dt, then clear them.  Returns steps copied.
+    static constexpr int kControlRecord = 3;
+    int take_control_history(double* out, int capacity_steps);
 
     int solve_linearized_eigenmodes(int n_eigs,
                                     const char* which,
@@ -269,7 +273,7 @@ private:
     int                 stab_m_ = 0;
     double              stab_alpha_ = 0.0;
     Eigen::MatrixXd     stab_Q_, stab_W_;
-    Eigen::VectorXd     stab_ustar_, stab_dev_, stab_coef_, stab_delta_;
+    Eigen::VectorXd     stab_ustar_, stab_udiag_, stab_dev_, stab_coef_, stab_delta_;
     std::vector<double> control_history_;
 
     // -----------------------------------------------------------------------
@@ -328,7 +332,8 @@ private:
     // Solve system_mat_ * sol_ = rhs_ with the selected linear solver.
     void solve_system();
     // Subtract (alpha/dt) Pi (u^n - u*) from the velocity RHS, if enabled.
-    void apply_stabilization_to_rhs();
+    // fu, fv: the external force of this step (NULL -> zero), for the diagnostics.
+    void apply_stabilization_to_rhs(const double* fu, const double* fv);
     // J = -D_u R (velocity x velocity), pressure gradient G and divergence D
     // (gauge row p(0,0) left empty) around the current state.
     int assemble_linearized_pencil(Eigen::SparseMatrix<double>& J,

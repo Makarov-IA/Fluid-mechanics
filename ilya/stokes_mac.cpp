@@ -429,7 +429,7 @@ double StokesMac2D::step(double t, ForceFn f1, ForceFn f2) {
     // ------------------------------------------------------------------
     // Solve  A·x = rhs  (factorisation already done in constructor)
     // ------------------------------------------------------------------
-    apply_stabilization_to_rhs();
+    apply_stabilization_to_rhs(nullptr, nullptr);
     solve_system();
 
     last_velocity_change_ = scatter_solution_and_measure_velocity_change();
@@ -475,7 +475,7 @@ double StokesMac2D::step_with_force_arrays(double t,
         }
     }
 
-    apply_stabilization_to_rhs();
+    apply_stabilization_to_rhs(fu, fv);
     solve_system();
 
     last_velocity_change_ = scatter_solution_and_measure_velocity_change();
@@ -1339,7 +1339,8 @@ int StokesMac2D::solve_linearized_eigenmodes(int n_eigs,
 // ---------------------------------------------------------------------------
 
 void StokesMac2D::set_stabilization(int m, const double* Q, const double* W,
-                                    const double* u_star, double alpha) {
+                                    const double* u_star, const double* u_diag,
+                                    double alpha) {
     control_history_.clear();
     if (m <= 0 || !Q || !W || !u_star) {
         stab_m_ = 0;
@@ -1349,6 +1350,7 @@ void StokesMac2D::set_stabilization(int m, const double* Q, const double* W,
     stab_Q_ = Eigen::Map<const Eigen::MatrixXd>(Q, nvel, m);
     stab_W_ = Eigen::Map<const Eigen::MatrixXd>(W, nvel, m);
     stab_ustar_ = Eigen::Map<const Eigen::VectorXd>(u_star, nvel);
+    stab_udiag_ = Eigen::Map<const Eigen::VectorXd>(u_diag ? u_diag : u_star, nvel);
     stab_dev_.resize(nvel);
     stab_coef_.resize(m);
     stab_delta_.resize(nvel);
@@ -1356,15 +1358,16 @@ void StokesMac2D::set_stabilization(int m, const double* Q, const double* W,
     stab_m_ = m;
 }
 
-int StokesMac2D::take_control_history(double* out, int capacity_pairs) {
-    const int pairs = static_cast<int>(control_history_.size() / 2);
-    const int n = std::min(pairs, std::max(capacity_pairs, 0));
-    if (out && n > 0) std::copy(control_history_.begin(), control_history_.begin() + 2 * n, out);
-    control_history_.erase(control_history_.begin(), control_history_.begin() + 2 * n);
+int StokesMac2D::take_control_history(double* out, int capacity_steps) {
+    constexpr int k = kControlRecord;
+    const int steps = static_cast<int>(control_history_.size() / k);
+    const int n = std::min(steps, std::max(capacity_steps, 0));
+    if (out && n > 0) std::copy(control_history_.begin(), control_history_.begin() + k * n, out);
+    control_history_.erase(control_history_.begin(), control_history_.begin() + k * n);
     return n;
 }
 
-void StokesMac2D::apply_stabilization_to_rhs() {
+void StokesMac2D::apply_stabilization_to_rhs(const double* fu, const double* fv) {
     if (stab_m_ <= 0) return;
     const int nvel = nu_unknowns_ + nv_unknowns_;
     for (int j = 0; j < ny_; ++j)
@@ -1383,7 +1386,18 @@ void StokesMac2D::apply_stabilization_to_rhs() {
     // (u^{n+1} - u*_n)/dt with u*_n = u^n - delta_n  ->  RHS -= delta_n / dt
     rhs_.head(nvel) -= stab_delta_ / dt_;
     control_history_.push_back(stab_delta_.cwiseAbs().maxCoeff());
-    control_history_.push_back(stab_dev_.cwiseAbs().maxCoeff());
+    // deviation from the diagnostic reference: u^n - u_diag = dev + u_ref - u_diag
+    control_history_.push_back((stab_dev_ + stab_ustar_ - stab_udiag_).cwiseAbs().maxCoeff());
+    // share of the feedback force in the total force: |f_c|_2 / |F + f_c|_2,
+    // f_c = -delta_n / dt, F = [fu, fv] (same ordering as the velocity unknowns)
+    double fc2 = 0.0, tot2 = 0.0;
+    for (int k = 0; k < nvel; ++k) {
+        const double fc = -stab_delta_[k] / dt_;
+        const double f = k < nu_unknowns_ ? (fu ? fu[k] : 0.0) : (fv ? fv[k - nu_unknowns_] : 0.0);
+        fc2 += fc * fc;
+        tot2 += (f + fc) * (f + fc);
+    }
+    control_history_.push_back(tot2 > 0.0 ? std::sqrt(fc2 / tot2) : 0.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1836,14 +1850,14 @@ extern "C" int stokes_mac_linearized_eig_si_c(void* handle, int n_eigs, double s
 
 extern "C" void stokes_mac_set_stabilization_c(void* handle, int m, const double* Q,
                                                const double* W, const double* u_star,
-                                               double alpha) {
+                                               const double* u_diag, double alpha) {
     if (!handle) return;
-    reinterpret_cast<StokesMac2D*>(handle)->set_stabilization(m, Q, W, u_star, alpha);
+    reinterpret_cast<StokesMac2D*>(handle)->set_stabilization(m, Q, W, u_star, u_diag, alpha);
 }
 
-extern "C" int stokes_mac_take_control_history_c(void* handle, double* out, int capacity_pairs) {
+extern "C" int stokes_mac_take_control_history_c(void* handle, double* out, int capacity_steps) {
     if (!handle) return 0;
-    return reinterpret_cast<StokesMac2D*>(handle)->take_control_history(out, capacity_pairs);
+    return reinterpret_cast<StokesMac2D*>(handle)->take_control_history(out, capacity_steps);
 }
 
 extern "C" void stokes_mac_free_c(void* handle) {

@@ -4,11 +4,13 @@ Two methods (``projected_run.method``):
 
 * ``forcing``  — remove the component of [fu, fv] along the unstable modes
   once (open loop).
-* ``feedback`` — every time step the time derivative uses
-  u*_n = u^n - alpha * Pi (u^n - u_s) instead of u^n, i.e. the correction
-  delta_n = alpha * Pi (u^n - u_s) is moved to the right-hand side as
-  -delta_n / dt; convection keeps u^n.  Pi = Q W^T is the oblique projector
-  onto the unstable eigenspace along the stable one (W from adjoint modes).
+* ``feedback_field`` / ``feedback_deviation`` — every time step the time
+  derivative uses u*_n = u^n - delta_n instead of u^n, i.e. -delta_n / dt is
+  moved to the right-hand side; convection keeps u^n.
+  ``feedback_field``:     delta_n = alpha * Pi u^n (the field without its
+  unstable modes); ``feedback_deviation``: delta_n = alpha * Pi (u^n - u_s).  Pi = Q W^T is the
+  oblique projector onto the unstable eigenspace along the stable one
+  (W from adjoint modes).
 """
 
 from __future__ import annotations
@@ -46,8 +48,10 @@ class FeedbackStabilization:
 
     basis: np.ndarray    # Q, (velocity_size, m)
     adjoint: np.ndarray  # W, (velocity_size, m), W^T Q = I
-    u_star: np.ndarray   # steady velocity [u_vec, v_vec]
+    u_ref: np.ndarray    # projected is u^n - u_ref (zeros: the field itself)
+    u_steady: np.ndarray # steady velocity [u_vec, v_vec], for diagnostics
     alpha: float
+    projection: str      # "field" | "deviation"
 
 
 class ForceProjection:
@@ -246,7 +250,7 @@ def build_feedback_stabilization(
     if "adjoint_vectors" not in eigen_data:
         raise ValueError(
             f"{eigenpairs_path} has no adjoint modes; rerun `make linearize` "
-            "(needed for projected_run.method: feedback)"
+            "(needed for projected_run.method: feedback_*)"
         )
 
     eigenvalues = np.asarray(eigen_data["eigenvalues"], dtype=np.complex128)
@@ -265,11 +269,14 @@ def build_feedback_stabilization(
             f"No eigenvalue with Re(lambda) > {cfg.projected_real_threshold} in "
             f"{eigenpairs_path}; nothing to stabilise"
         )
+    u_steady = np.concatenate([mac_state.u_vec, mac_state.v_vec])
     stabilization = FeedbackStabilization(
         basis=basis,
         adjoint=adjoint,
-        u_star=np.concatenate([mac_state.u_vec, mac_state.v_vec]),
+        u_ref=u_steady if cfg.projected_feedback_projection == "deviation" else np.zeros_like(u_steady),
+        u_steady=u_steady,
         alpha=cfg.projected_feedback_alpha,
+        projection=cfg.projected_feedback_projection,
     )
     info = ProjectionInfo(
         state_path=state_path,
@@ -281,7 +288,7 @@ def build_feedback_stabilization(
         force_norm=0.0,
         removed_norm=0.0,
         remaining_norm=0.0,
-        method="feedback",
+        method=cfg.projected_method,
         feedback_alpha=cfg.projected_feedback_alpha,
     )
     return mac_state, stabilization, info

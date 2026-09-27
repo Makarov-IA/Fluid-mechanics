@@ -170,8 +170,10 @@ class SimConfig:
             raise ValueError("projected_video_fps must be positive")
         if self.projected_video_speed is not None and self.projected_video_speed <= 0:
             raise ValueError("projected_video_speed must be positive")
-        if self.projected_method not in ("forcing", "feedback"):
-            raise ValueError("projected_run.method must be 'forcing' or 'feedback'")
+        if self.projected_method not in ("forcing", "feedback_field", "feedback_deviation"):
+            raise ValueError(
+                "projected_run.method must be 'forcing', 'feedback_field' or 'feedback_deviation'"
+            )
         if not (0.0 < self.projected_feedback_alpha < 2.0):
             raise ValueError("projected_run.feedback_alpha must lie in (0, 2)")
         if self.linear_solver_method not in ("direct", "fast"):
@@ -203,6 +205,15 @@ class SimConfig:
     def projected_eigenpairs_path(self) -> str:
         """Eigenpairs written by `linearize`."""
         return str(Path(self.output_dir) / "linearized" / "eigenpairs.pkl")
+
+    @property
+    def projected_is_feedback(self) -> bool:
+        return self.projected_method.startswith("feedback")
+
+    @property
+    def projected_feedback_projection(self) -> str:
+        """'field' (delta = alpha Pi u^n) or 'deviation' (alpha Pi (u^n - u_s))."""
+        return "deviation" if self.projected_method == "feedback_deviation" else "field"
 
     @property
     def dt(self) -> float:

@@ -40,6 +40,8 @@ class SimulationResult:
     # Feedback stabilisation only: per step ||delta_n||_inf and ||u^n - u*||_inf
     correction_history: list[float] = field(default_factory=list)
     deviation_history: list[float] = field(default_factory=list)
+    # ||f_c||_2 / ||F + f_c||_2 per step, f_c = -delta_n / dt
+    force_ratio_history: list[float] = field(default_factory=list)
 
 
 def _cell_centred_velocity(
@@ -109,6 +111,7 @@ def run_simulation(
     velocity_change_history: list[float] = []
     correction_history: list[float] = []
     deviation_history: list[float] = []
+    force_ratio_history: list[float] = []
     converged = False
     n_batches = -(-cfg.n_steps // cfg.frame_every)
 
@@ -148,8 +151,9 @@ def run_simulation(
                 solver.set_stabilization(
                     stabilization.basis,
                     stabilization.adjoint,
-                    stabilization.u_star,
+                    stabilization.u_ref,
                     stabilization.alpha,
+                    u_diag=stabilization.u_steady,
                 )
 
             step_done = 0
@@ -185,9 +189,10 @@ def run_simulation(
                 div_history.extend(divs.tolist())
                 velocity_change_history.extend(changes.tolist())
                 if stabilization is not None:
-                    corr, dev = solver.take_control_history(batch_n)
+                    corr, dev, ratio = solver.take_control_history(batch_n)
                     correction_history.extend(corr.tolist())
                     deviation_history.extend(dev.tolist())
+                    force_ratio_history.extend(ratio.tolist())
 
                 p, u, v = solver.get_fields()
                 u_vec, v_vec, p_vec = solver.get_state()
@@ -246,4 +251,5 @@ def run_simulation(
         velocity_change_history=velocity_change_history,
         correction_history=correction_history,
         deviation_history=deviation_history,
+        force_ratio_history=force_ratio_history,
     )

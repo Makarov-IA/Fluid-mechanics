@@ -34,6 +34,7 @@ from viz.plots import (
     save_center_velocity_plot,
     save_divergence_plot,
     save_final_figure,
+    save_feedback_force_ratio_plot,
     save_iterate_change_plot,
     save_stabilization_correction_plot,
     save_mac_state_pickle,
@@ -198,10 +199,11 @@ def _print_projected_run_config(cfg: SimConfig) -> None:
     table.add_row("Start state", str(state_path))
     table.add_row("Eigenpairs", str(eigenpairs_path))
     table.add_row("Cutoff", f"Re(λ) > {cfg.projected_real_threshold}")
-    if cfg.projected_method == "feedback":
+    if cfg.projected_is_feedback:
+        delta = "α·Π uⁿ" if cfg.projected_feedback_projection == "field" else "α·Π(uⁿ − u_s)"
         table.add_row(
             "Method",
-            f"feedback: u*ₙ = uⁿ − α·Π(uⁿ − u_s) in ∂u/∂t, α = {cfg.projected_feedback_alpha}",
+            f"{cfg.projected_method}: u*ₙ = uⁿ − {delta} in ∂u/∂t, α = {cfg.projected_feedback_alpha}",
         )
     else:
         table.add_row("Method", "forcing: F − Proj(F) (open loop)")
@@ -381,7 +383,7 @@ def _run_projected_run(cfg: SimConfig) -> None:
 
     force_modifier = None
     stabilization = None
-    if runtime_cfg.projected_method == "feedback":
+    if runtime_cfg.projected_is_feedback:
         initial_state, stabilization, projection_info = build_feedback_stabilization(
             runtime_cfg,
             PROJECT_DIR,
@@ -430,6 +432,14 @@ def _run_projected_run(cfg: SimConfig) -> None:
                 out_dir,
             )
         correction_path: Path | None = None
+        force_ratio_path: Path | None = None
+        if result.force_ratio_history:
+            force_ratio_path = save_feedback_force_ratio_plot(
+                result.t_history,
+                result.force_ratio_history,
+                runtime_cfg.projected_method,
+                out_dir,
+            )
         if result.correction_history:
             correction_path = save_stabilization_correction_plot(
                 result.t_history,
@@ -437,6 +447,7 @@ def _run_projected_run(cfg: SimConfig) -> None:
                 result.deviation_history,
                 runtime_cfg.projected_feedback_alpha,
                 out_dir,
+                projection=runtime_cfg.projected_feedback_projection,
             )
         center_velocity_path = save_center_velocity_plot(
             snapshots,
@@ -492,6 +503,8 @@ def _run_projected_run(cfg: SimConfig) -> None:
     table.add_row("✓ divergence", str(divergence_path))
     if correction_path is not None:
         table.add_row("✓ correction |δₙ|(t)", str(correction_path))
+    if force_ratio_path is not None:
+        table.add_row("✓ force share |f_c|/|F+f_c|", str(force_ratio_path))
     if velocity_change_path is not None:
         table.add_row("✓ velocity-change", str(velocity_change_path))
     table.add_row("✓ control-point velocity", str(center_velocity_path))

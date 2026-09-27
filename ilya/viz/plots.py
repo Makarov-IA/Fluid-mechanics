@@ -248,6 +248,7 @@ def save_stabilization_correction_plot(
     deviation_history: list[float],
     alpha: float,
     out_dir: Path,
+    projection: str = "field",
 ) -> Path:
     """Plot the feedback correction ||delta_n||_inf and the deviation ||u^n - u_s||_inf."""
     t_arr = np.asarray(t_history, dtype=np.float64)[: len(correction_history)]
@@ -270,7 +271,11 @@ def save_stabilization_correction_plot(
         np.maximum(corr_plot, tiny),
         color="#ad1457",
         linewidth=1.2,
-        label=r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi(u^n - u_s)$",
+        label=(
+            r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi\,u^n$"
+            if projection == "field"
+            else r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi(u^n - u_s)$"
+        ),
     )
     ax.semilogy(
         t_plot,
@@ -298,6 +303,60 @@ def save_stabilization_correction_plot(
         )
     fig.tight_layout()
     path = out_dir / "stabilization_correction.png"
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    return path
+
+
+def save_feedback_force_ratio_plot(
+    t_history: list[float],
+    ratio_history: list[float],
+    method: str,
+    out_dir: Path,
+) -> Path:
+    """Plot the share of the feedback force in the total force, ||f_c|| / ||F + f_c||."""
+    t_arr = np.asarray(t_history, dtype=np.float64)[: len(ratio_history)]
+    ratio = np.asarray(ratio_history, dtype=np.float64)
+    stride = max(1, len(ratio) // 5000)
+    n_bins = len(ratio) // stride
+    if n_bins > 0:
+        t_plot = t_arr[: n_bins * stride : stride]
+        r_plot = ratio[: n_bins * stride].reshape(n_bins, stride).max(axis=1)
+    else:
+        t_plot, r_plot = t_arr, ratio
+
+    fig, ax = plt.subplots(figsize=(8.0, 4.5))
+    ax.semilogy(t_plot, np.maximum(r_plot, np.finfo(np.float64).tiny), color="#6a1b9a", linewidth=1.2)
+    ax.set_title(
+        rf"Feedback force share ({method}):  "
+        r"$\|f_c\|_2 \,/\, \|F + f_c\|_2,\ \ f_c = -\delta_n/\Delta t$"
+    )
+    ax.set_xlabel("t")
+    ax.set_ylabel(r"$\|f_c\|_2 / \|F + f_c\|_2$")
+    ax.grid(True, which="both", alpha=0.3)
+    if len(r_plot):
+        ax.text(
+            0.98,
+            0.95,
+            f"final: {r_plot[-1]:.2e}",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=9,
+        )
+    if stride > 1:
+        ax.text(
+            0.98,
+            0.03,
+            f"(max over every {stride} steps)",
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=7,
+            color="gray",
+        )
+    fig.tight_layout()
+    path = out_dir / "feedback_force_ratio.png"
     fig.savefig(path, dpi=180)
     plt.close(fig)
     return path

@@ -360,31 +360,46 @@ class StokesMACLib:
         adjoint: np.ndarray,
         u_star: np.ndarray,
         alpha: float,
+        u_diag: np.ndarray | None = None,
     ) -> None:
-        """Enable feedback stabilisation: RHS -= (alpha/dt) Q W^T (u^n - u*)."""
+        """Enable feedback stabilisation: RHS -= (alpha/dt) Q W^T (u^n - u_ref).
+
+        ``u_star`` is u_ref (zeros -> project the field itself); ``u_diag`` is the
+        reference for the recorded deviation (default: u_ref).
+        """
         nvel = self._nu + self._nv
         q = np.asfortranarray(basis, dtype=np.float64)
         w = np.asfortranarray(adjoint, dtype=np.float64)
         u = self._double_array(u_star)
         if q.ndim != 2 or q.shape[0] != nvel or w.shape != q.shape or u.shape != (nvel,):
             raise ValueError("stabilization basis/adjoint must be (velocity_size, m), u_star (velocity_size,)")
-        self._stab_arrays = (q, w, u)
+        d = u if u_diag is None else self._double_array(u_diag)
+        if d.shape != (nvel,):
+            raise ValueError("u_diag must have shape (velocity_size,)")
+        self._stab_arrays = (q, w, u, d)
         self._dll.stokes_mac_set_stabilization_c(
             self._handle,
             ct.c_int(q.shape[1]),
             self._double_ptr(q),
             self._double_ptr(w),
             self._double_ptr(u),
+            self._double_ptr(d),
             ct.c_double(alpha),
         )
 
-    def take_control_history(self, capacity: int) -> tuple[np.ndarray, np.ndarray]:
-        """Return (||delta_n||_inf, ||u^n - u*||_inf) recorded since the last call."""
-        out = np.empty((max(capacity, 0), 2), dtype=np.float64)
+    def take_control_history(
+        self, capacity: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Per-step records since the last call.
+
+        Returns (||delta_n||_inf, ||u^n - u_s||_inf, ||f_c||_2 / ||F + f_c||_2)
+        with the feedback force f_c = -delta_n / dt and the external force F.
+        """
+        out = np.empty((max(capacity, 0), 3), dtype=np.float64)
         n = self._dll.stokes_mac_take_control_history_c(
             self._handle, self._double_ptr(out), ct.c_int(out.shape[0])
         )
-        return out[:n, 0].copy(), out[:n, 1].copy()
+        return out[:n, 0].copy(), out[:n, 1].copy(), out[:n, 2].copy()
 
     def solve_linearized_eig(
         self,
@@ -648,6 +663,7 @@ class StokesMACLib:
         dll.stokes_mac_set_stabilization_c.argtypes = [
             ct.c_void_p,
             ct.c_int,
+            double_ptr,
             double_ptr,
             double_ptr,
             double_ptr,
