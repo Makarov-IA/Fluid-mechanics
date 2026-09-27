@@ -77,7 +77,6 @@ class SimConfig:
     restart_state_path: str | None = None
 
     fixed_time_state_t: float = 0.0
-    steady_initial_state_path: str = "plots/run/fixed_time_state/state_internal.pkl"
     steady_max_newton_iters: int = 12
     steady_residual_tol: float = 1e-8
     steady_krylov_tol: float = 1e-6
@@ -87,14 +86,11 @@ class SimConfig:
     steady_line_search: str = "armijo"
     steady_min_step: float = 1e-3
 
-    linear_state_path: str = "plots/steady/state_internal.pkl"
     linear_n_eigs: int = 6
     linear_which: str = "LR"
     linear_sigma: float = 0.0
     linear_krylov_dim: int = 80
 
-    projected_state_path: str = "plots/steady/state_internal.pkl"
-    projected_eigenpairs_path: str = "plots/linearized/eigenpairs.pkl"
     projected_t_end: float | None = None
     projected_n_steps: int | None = None
     projected_video_fps: float | None = None
@@ -105,7 +101,8 @@ class SimConfig:
     projected_method: str = "forcing"
     projected_feedback_alpha: float = 1.0
 
-    output_dir: str | None = None
+    # Results folder; every stage reads/writes fixed sub-paths inside it.
+    output_dir: str = "plots"
 
     linear_solver_method: str = "direct"
     linear_solver_fast_tol: float = 3e-15
@@ -185,6 +182,29 @@ class SimConfig:
             raise ValueError("linear_solver.fast_extrapolation must be 0, 1, 2 or 3")
 
     @property
+    def steady_initial_state_path(self) -> str:
+        """Input of `steady`: the fixed-time snapshot written by `run`."""
+        return str(Path(self.output_dir) / "run" / "fixed_time_state" / "state_internal.pkl")
+
+    @property
+    def steady_state_path(self) -> str:
+        """Steady state written by `steady`; input of `linearize` / `projected-run`."""
+        return str(Path(self.output_dir) / "steady" / "state_internal.pkl")
+
+    @property
+    def linear_state_path(self) -> str:
+        return self.steady_state_path
+
+    @property
+    def projected_state_path(self) -> str:
+        return self.steady_state_path
+
+    @property
+    def projected_eigenpairs_path(self) -> str:
+        """Eigenpairs written by `linearize`."""
+        return str(Path(self.output_dir) / "linearized" / "eigenpairs.pkl")
+
+    @property
     def dt(self) -> float:
         return self.t_end / self.n_steps
 
@@ -244,6 +264,22 @@ class SimConfig:
         projected = data.get("projected_run", {}) or {}
         linear_solver = data.get("linear_solver", {}) or {}
 
+        legacy = [
+            f"{section}.{key}"
+            for section, block, keys in (
+                ("steady_solver", steady, ("initial_state_path", "state_path", "guess_path")),
+                ("linearization", linear, ("state_path",)),
+                ("projected_run", projected, ("state_path", "eigenpairs_path")),
+            )
+            for key in keys
+            if key in block
+        ]
+        if legacy:
+            print(
+                "[warning] ignored path keys (paths now follow `output_dir`): "
+                + ", ".join(legacy)
+            )
+
         return cls(
             lx=data["domain"]["lx"],
             ly=data["domain"]["ly"],
@@ -270,15 +306,6 @@ class SimConfig:
                 "fixed_time_state_t",
                 output.get("fixed_time_state_t", 0.0),
             ),
-            steady_initial_state_path=str(
-                steady.get(
-                    "initial_state_path",
-                    steady.get(
-                        "state_path",
-                        steady.get("guess_path", "plots/run/fixed_time_state/state_internal.pkl"),
-                    ),
-                )
-            ),
             steady_max_newton_iters=steady.get("max_newton_iters", 12),
             steady_residual_tol=steady.get("residual_tol", 1e-8),
             steady_krylov_tol=steady.get("krylov_tol", 1e-6),
@@ -287,17 +314,10 @@ class SimConfig:
             steady_jacobian_rdiff=steady.get("jacobian_rdiff", 1e-6),
             steady_line_search=str(steady.get("line_search", "armijo")),
             steady_min_step=steady.get("min_step", 1e-3),
-            linear_state_path=str(linear.get("state_path", "plots/steady/state_internal.pkl")),
             linear_n_eigs=linear.get("n_eigs", 6),
             linear_which=str(linear.get("which", "LR")),
             linear_sigma=float(linear.get("sigma", 0.0)),
             linear_krylov_dim=int(linear.get("krylov_dim", 80)),
-            projected_state_path=str(
-                projected.get("state_path", "plots/steady/state_internal.pkl")
-            ),
-            projected_eigenpairs_path=str(
-                projected.get("eigenpairs_path", "plots/linearized/eigenpairs.pkl")
-            ),
             projected_t_end=projected.get("t_end"),
             projected_n_steps=projected.get("n_steps"),
             projected_video_fps=projected.get("video_fps"),
@@ -311,7 +331,7 @@ class SimConfig:
             projected_projection_rcond=projected.get("projection_rcond", 1e-12),
             projected_method=str(projected.get("method", "forcing")),
             projected_feedback_alpha=float(projected.get("feedback_alpha", 1.0)),
-            output_dir=(str(data["output_dir"]) if data.get("output_dir") else None),
+            output_dir=str(data.get("output_dir", "plots")),
             linear_solver_method=str(linear_solver.get("method", "direct")),
             linear_solver_fast_tol=float(linear_solver.get("fast_tol", 3e-15)),
             linear_solver_fast_extrapolation=int(linear_solver.get("fast_extrapolation", 3)),

@@ -1,170 +1,200 @@
-# 2-D MAC Navier-Stokes Solver
+# Двумерный решатель Навье–Стокса на MAC-сетке
 
-This directory contains a 2-D incompressible Navier-Stokes solver on a
-staggered MAC grid. The scheme is semi-implicit:
+В папке находится решатель двумерных уравнений Навье–Стокса для несжимаемой
+жидкости на смещённой (MAC) сетке. Схема полунеявная:
 
-- viscosity and pressure are treated implicitly,
-- convection is treated explicitly from the previous time layer,
-- each time step solves one monolithic Stokes system.
+- вязкость и давление берутся неявно,
+- конвекция — явно, с предыдущего слоя по времени,
+- на каждом шаге решается одна монолитная система Стокса для скорости и давления.
 
-The project has four user-facing modes:
+Режимы работы:
 
-- `simulation` — time-dependent run with plots, videos, and a fixed-time state export,
-- `steady` — fixed-point Newton-GMRES solve that starts from the fixed-time state
-  saved by `simulation`,
-- `linearize` — eigenmode solve for the operator linearized around
-  `plots/steady/state_internal.pkl`,
-- `projected-run` — simulation from the steady state with the forcing component
-  along selected unstable eigenmodes removed.
+- `simulation` — расчёт по времени: графики, видео и сохранение состояния в
+  заданный момент времени;
+- `steady` — поиск стационарного решения методом Ньютона–GMRES, начальное
+  приближение — состояние, сохранённое в `simulation`;
+- `linearize` — собственные моды оператора, линеаризованного около стационара;
+- `projected-run` — расчёт из стационара с подавлением неустойчивых мод
+  (методы `forcing` или `feedback`, см. ниже).
 
-## Workflow
+## Порядок работы
 
-1. Build the shared library:
+Все команды принимают имя конфига, например `pulsation` (файл `pulsation.yaml`).
+Результаты всех этапов пишутся в папку `output_dir` из конфига (ниже
+обозначена `<out>`).
+
+1. Сборка библиотеки:
 
    ```bash
    make compile
    ```
 
-2. Run the unsteady simulation:
+2. Расчёт по времени:
 
    ```bash
-   make run
+   make run pulsation
    ```
 
-   This writes:
+   Записывает:
 
-   - `plots/run/final_state/*` — final-time plots,
-   - `plots/run/fixed_time_state/state.pkl` — cell-centred snapshot nearest to
-     `run.fixed_time_state_t`,
-   - `plots/run/fixed_time_state/state_internal.pkl` — exact MAC-state used by
-     `steady`,
-   - `plots/run/*.mp4` — videos,
-   - `plots/run/stokes_velocity_change.png` only when
+   - `<out>/run/final_state/*` — графики и состояние в конце расчёта;
+   - `<out>/run/fixed_time_state/state_internal.pkl` — точное состояние
+     решателя в момент, ближайший к `run.fixed_time_state_t` (из него стартует
+     `steady`);
+   - `<out>/run/fixed_time_state/state.pkl` — то же состояние в центрах ячеек,
+     для внешнего анализа;
+   - `<out>/run/*.mp4` — видео;
+   - `<out>/run/stokes_velocity_change.png` — только при
      `run.save_velocity_change_plot: true`.
 
-3. Run the steady solver:
+3. Стационарное решение:
 
    ```bash
-   make steady
+   make steady pulsation
    ```
 
-   `steady` reads only `plots/run/fixed_time_state/state_internal.pkl` as its
-   initial guess.
-   The converged internal state is written to `plots/steady/state_internal.pkl`.
+   Читает `<out>/run/fixed_time_state/state_internal.pkl`, пишет найденный
+   стационар в `<out>/steady/state_internal.pkl`.
 
-4. Linearize around the steady state and compute eigenvectors:
+4. Линеаризация около стационара и собственные моды:
 
    ```bash
-   make linearize
+   make linearize pulsation
    ```
 
-   This writes `plots/linearized/eigenpairs.pkl`.
+   Читает `<out>/steady/state_internal.pkl`, пишет
+   `<out>/linearized/eigenpairs.pkl`.
 
-5. Run the projected-forcing simulation:
+5. Расчёт со стабилизацией:
 
    ```bash
-   make projected-run
+   make projected-run pulsation
    ```
 
-   This starts from `plots/steady/state_internal.pkl`, uses
-   `plots/linearized/eigenpairs.pkl`, removes the configured unstable-mode
-   projection from `[fu, fv]`, and writes outputs under `plots/projected_run`.
-   It uses `projected_run.t_end`, `projected_run.n_steps`, and its own video
-   settings. Tolerance-based early stop is always disabled for this mode.
+   Стартует из `<out>/steady/state_internal.pkl`, берёт моды из
+   `<out>/linearized/eigenpairs.pkl`, пишет результаты в
+   `<out>/projected_run`. Использует свои `projected_run.t_end`,
+   `projected_run.n_steps` и настройки видео; досрочная остановка по
+   сходимости в этом режиме отключена.
 
-## Configuration
+Шаги 2–5 можно запустить одной командой; цепочка остановится на первом
+упавшем этапе:
 
-All runtime parameters live in `config.yaml`.
+```bash
+make run_all pulsation
+```
 
-- `domain`, `grid`, `physics`: geometry and viscosity
-- `output_dir` (optional, top level): folder for all results. Without it each
-  mode writes next to its input: `steady` with
-  `initial_state_path: plots_fast/run/...` writes to `plots_fast/steady`,
-  `linearize` / `projected-run` follow `linearization.state_path` /
-  `projected_run.state_path`; `run` uses `plots`.
-- `run.t_end`, `run.n_steps`: time interval and step count for `make run`
-- `run.video_fps`, `run.video_speed`: video export settings
-- `run.save_velocity_change_plot`: opt-in plot of
-  `||U_n - U_{n-1}||_inf / Δt` versus time
-- `run.fixed_time_state_t`: target time for the snapshot exported to
-  `plots/run/fixed_time_state/*.pkl`
-- `run.convergence_tol`: early stop for simulation mode
-- `linear_solver.method`: how each time step's Stokes system is solved in
-  `run` and `projected-run` — `direct` (sparse LDLᵀ, default) or `fast`
-  (Uzawa-PCG in `fast_stokes.h`: exact sine-basis/tridiagonal velocity solves,
-  CG on the pressure Schur complement; same solution up to round-off, macOS
-  only). `fast_tol`, `fast_extrapolation`, `fast_parallel` tune it. `steady`
-  always uses `direct`.
-- `steady_solver.*`: Newton-GMRES parameters
-- `linearization.*`: linearization and eigenmode-selection parameters
-- `linearization.sigma`, `linearization.krylov_dim`: shift and Krylov size of the
-  shift-invert eigensolver
-- `projected_run.*`: independent projected-run runtime settings and the
-  stabilisation: `method` (`forcing` | `feedback`), `feedback_alpha`,
-  `real_threshold` (modes with `Re λ` above it are stabilised)
-- `boundary`, `forcing`: symbolic expressions evaluated with NumPy
+## Конфигурация
 
-## Numerics
+Все параметры задаются в yaml-файле конфига.
 
-The solver advances
+- `output_dir` (верхний уровень, по умолчанию `plots`) — папка результатов.
+  Каждый этап пишет в `<output_dir>/<этап>` и читает предыдущий этап по
+  фиксированным путям: `steady` ← `run/fixed_time_state/state_internal.pkl`,
+  `linearize` и `projected-run` ← `steady/state_internal.pkl`,
+  `projected-run` ← `linearized/eigenpairs.pkl`. Старые ключи путей
+  (`steady_solver.initial_state_path`, `linearization.state_path`,
+  `projected_run.state_path`, `projected_run.eigenpairs_path`) игнорируются с
+  предупреждением.
+- `domain`, `grid`, `physics` — размеры области, сетка, вязкость.
+- `boundary`, `forcing` — граничные условия и правая часть: выражения,
+  которые вычисляются через NumPy.
+- `run.t_end`, `run.n_steps` — время расчёта и число шагов для `make run`.
+- `run.video_fps`, `run.video_speed` — параметры видео.
+- `run.save_velocity_change_plot` — график `||U_n − U_{n−1}||_∞ / Δt` от
+  времени.
+- `run.fixed_time_state_t` — момент времени для сохранения состояния в
+  `<out>/run/fixed_time_state/`.
+- `run.convergence_tol` — досрочная остановка расчёта по времени.
+- `linear_solver.method` — как решается система на каждом шаге в `run` и
+  `projected-run`:
+  - `direct` — разреженное разложение LDLᵀ (эталон, по умолчанию);
+  - `fast` — метод Узавы с сопряжёнными градиентами (`fast_stokes.h`):
+    блок скорости решается точно (синус-базис по x, прогонка по y), давление —
+    CG по дополнению Шура. Результат совпадает с `direct` до ошибок округления,
+    работает примерно в 5 раз быстрее на сетке 201×201, только на macOS.
+    Параметры: `fast_tol`, `fast_extrapolation`, `fast_parallel`.
+
+  `steady` всегда использует `direct`.
+- `steady_solver.*` — параметры метода Ньютона–GMRES.
+- `linearization.n_eigs` — сколько собственных пар искать;
+  `linearization.sigma`, `linearization.krylov_dim` — сдвиг и размерность
+  подпространства Крылова для метода Арнольди со сдвигом и обращением.
+- `projected_run.*` — время, число шагов и видео для `projected-run`, а также
+  стабилизация: `method` (`forcing` | `feedback`), `feedback_alpha`,
+  `real_threshold` (стабилизируются моды с `Re λ` больше порога).
+
+## Численный метод
+
+Решаются уравнения
 
 ```text
-u_t + (u · ∇)u - νΔu + ∇p = f
+u_t + (u · ∇)u − νΔu + ∇p = f
 ∇·u = 0
 ```
 
-with backward Euler for viscosity/pressure and explicit Euler for convection.
-The MAC layout is
+неявным методом Эйлера для вязкости и давления и явным — для конвекции.
+Расположение неизвестных на MAC-сетке:
 
 ```text
-p[i,j] : cell centres        size Nx × Ny
-u[i,j] : vertical faces      size (Nx+1) × Ny
-v[i,j] : horizontal faces    size Nx × (Ny+1)
+p[i,j] : центры ячеек            размер Nx × Ny
+u[i,j] : вертикальные грани      размер (Nx+1) × Ny
+v[i,j] : горизонтальные грани    размер Nx × (Ny+1)
 ```
 
-The steady solver looks for a fixed point of one IMEX step:
+### Стационарное решение
+
+Ищется неподвижная точка одного шага по времени:
 
 ```text
 U* = Φ(U*)
 ```
 
-and solves `G(U) = Φ(U) - U = 0` by damped Newton-GMRES inside the C++ backend.
+Уравнение `G(U) = Φ(U) − U = 0` решается методом Ньютона с демпфированием и
+GMRES внутри C++.
 
-The linearization mode uses the stationary Navier-Stokes residual with the time
-derivatives set to zero:
+### Линеаризация и собственные моды
+
+Используется стационарная невязка Навье–Стокса (производные по времени равны
+нулю):
 
 ```text
-R(U, p) = [(u · ∇)u - νΔu + ∇p - f, ∇·u]
+R(U, p) = [(u · ∇)u − νΔu + ∇p − f, ∇·u]
 ```
 
-The C++ backend analytically linearizes the momentum residual,
-`J = -D_u R(U*)`, assembles it as a sparse matrix (exact coloured probing of
-the stencil) and works with the velocity–pressure pencil
+C++ аналитически линеаризует невязку уравнения движения, `J = −D_u R(U*)`,
+собирает её как разреженную матрицу (точно, по раскраске шаблона) и работает
+с пучком «скорость–давление»:
 
 ```text
-[ J  -G ] [q]         [q]
+[ J  −G ] [q]         [q]
 [ D   0 ] [π] = λ ·   [0]        ⇔   L q = λ q,  L = P J,  ∇·q = 0
 ```
 
-(`G` — pressure gradient, `D` — divergence with the gauge `p(0,0) = 0`).
-Eigenvalues with the largest real part are found by shift-invert Arnoldi
-around `linearization.sigma` (one sparse LU of `A − σB`), then every pair is
-refined by inverse iteration, and the matching **adjoint (left) vector** `a`
-(`aᵀL = λaᵀ`, normalised `aᵀq = 1`) is computed from the transposed LU.
-`plots/linearized/eigenpairs.pkl` stores `eigenvalues`, `eigenvectors`
-(`[u_vec, v_vec, p]`), `adjoint_vectors` (`[u_vec, v_vec]`) and the residuals
+Здесь `G` — градиент давления, `D` — дивергенция с калибровкой `p(0,0) = 0`.
+Собственные значения с наибольшей вещественной частью находятся методом
+Арнольди со сдвигом и обращением около `linearization.sigma` (одно разреженное
+LU-разложение `A − σB`). Каждая пара уточняется обратными итерациями, и для неё
+считается **сопряжённый (левый) вектор** `a` (`aᵀL = λaᵀ`, нормировка
+`aᵀq = 1`) по транспонированному разложению. В
+`<out>/linearized/eigenpairs.pkl` сохраняются `eigenvalues`, `eigenvectors`
+(порядок `[u_vec, v_vec, p]`), `adjoint_vectors` (`[u_vec, v_vec]`) и невязки
 `‖[Jq − Gπ − λq; Dq]‖`.
 
-### Stabilisation (`projected_run.method`)
+Если состояние не стационарное (`‖R(U0)‖∞ > 1e-3`), `linearize` выводит
+предупреждение.
 
-`forcing` (open loop): the forcing is replaced once by `F − Proj(F)`, the
-orthogonal projection onto the unstable modes removed.
+### Стабилизация (`projected_run.method`)
 
-`feedback`: let `u_s` be the steady state, `q_k`, `a_k` the unstable right and
-adjoint modes and `Π = Q Wᵀ` the real oblique projector onto their span along
-the stable eigenspace (`Q = [Re q, Im q]`, `W` from `a` with `WᵀQ = I`).
-In every step the time derivative uses the velocity without the unstable part
-of the deviation,
+`forcing` (разомкнутое управление): правая часть один раз заменяется на
+`F − Proj(F)`, где из неё вычтена ортогональная проекция на неустойчивые моды.
+
+`feedback` (обратная связь). Пусть `u_s` — стационар, `q_k`, `a_k` —
+неустойчивые правые и сопряжённые моды, `Π = Q Wᵀ` — вещественный косой
+проектор на их линейную оболочку вдоль устойчивого подпространства
+(`Q = [Re q, Im q]`, `W` строится из `a` так, что `WᵀQ = I`). На каждом шаге в
+производной по времени вместо `uⁿ` берётся поле без неустойчивой части
+отклонения от стационара:
 
 ```text
 u*ₙ = uⁿ − δₙ,        δₙ = α · Π (uⁿ − u_s),
@@ -172,27 +202,28 @@ u*ₙ = uⁿ − δₙ,        δₙ = α · Π (uⁿ − u_s),
 (uⁿ⁺¹ − u*ₙ)/Δt + (uⁿ·∇)uⁿ − νΔuⁿ⁺¹ + ∇pⁿ⁺¹ = f,     ∇·uⁿ⁺¹ = 0,
 ```
 
-i.e. the correction is moved to the right-hand side and convection keeps `uⁿ`:
+то есть поправка переносится в правую часть, а конвекция считается по `uⁿ`:
 
 ```text
 (uⁿ⁺¹ − uⁿ)/Δt + (uⁿ·∇)uⁿ − νΔuⁿ⁺¹ + ∇pⁿ⁺¹ = f − δₙ/Δt.
 ```
 
-The matrix of the step is unchanged, so both linear solvers work.  `α ∈ (0, 2)`
-(`projected_run.feedback_alpha`, default 1): `α = 1` removes the unstable
-component of the deviation completely every step; `α/Δt` is the feedback
-gain.  `u_s` stays a steady solution (`δ = 0` there).  The run saves
-`stabilization_correction.png` with `‖δₙ‖∞` and `‖uⁿ − u_s‖∞` versus time.
-`steady` is never controlled.
+Матрица шага не меняется, поэтому работают оба линейных решателя.
+`α ∈ (0, 2)` (`projected_run.feedback_alpha`, по умолчанию 1): при `α = 1`
+неустойчивая компонента отклонения полностью убирается на каждом шаге;
+`α/Δt` — коэффициент обратной связи. `u_s` остаётся стационарным решением
+(там `δ = 0`). Прогон сохраняет `stabilization_correction.png` — графики
+`‖δₙ‖∞` и `‖uⁿ − u_s‖∞` от времени. В `steady` управление никогда не
+включается.
 
-## Внутренние Задачи
+## Задачи
 
-- **Задача о кювете / cavity-flow**: set body forces to zero and prescribe wall
-  velocities in `boundary.*`; `make run` produces the time evolution and
-  fixed-time state.
-- **Задача с произвольными правыми частями**: set symbolic `forcing.fu` and
-  `forcing.fv` expressions in `config.yaml`; they are evaluated on MAC faces
-  with NumPy.
-- **Поиск нестационарных мод**: run `make steady`, then `make linearize` to find
-  eigenmodes of the stationary Navier-Stokes operator; `make projected-run` can
-  run from the steady state with selected unstable forcing components removed.
+- **Задача о кювете**: правая часть равна нулю, скорости стенок задаются в
+  `boundary.*`; `make run` даёт эволюцию течения и состояние в заданный
+  момент времени.
+- **Задача с произвольной правой частью**: выражения `forcing.fu` и
+  `forcing.fv` в конфиге, они вычисляются на гранях MAC-сетки через NumPy.
+- **Поиск неустойчивых мод и стабилизация**: `make steady`, затем
+  `make linearize` находит собственные моды стационарного оператора
+  Навье–Стокса; `make projected-run` запускает расчёт из стационара с
+  подавлением неустойчивых мод. Всё сразу — `make run_all`.

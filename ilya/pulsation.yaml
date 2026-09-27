@@ -1,5 +1,10 @@
 # 2-D incompressible Navier-Stokes on a staggered MAC grid.
 
+# All results go here; every stage reads the previous one from fixed sub-paths:
+#   run -> <output_dir>/run, steady -> <output_dir>/steady,
+#   linearize -> <output_dir>/linearized, projected-run -> <output_dir>/projected_run
+output_dir: plots_direct
+
 domain:
   lx: 1.0
   ly: 0.5
@@ -43,7 +48,6 @@ linear_solver:
   fast_parallel: true      # solve u and v branches on two cores
 
 steady_solver:
-  initial_state_path: plots_fast/run/fixed_time_state/state_internal.pkl
   max_newton_iters: 12
   residual_tol: 1.0e-8
   krylov_tol: 1.0e-6
@@ -54,7 +58,6 @@ steady_solver:
   min_step: 1.0e-3
 
 linearization:
-  state_path: plots_fast/run/fixed_time_state/state_internal.pkl
   n_eigs: 6
   which: LR
   sigma: 0.0          # shift of the shift-invert Arnoldi
@@ -70,7 +73,5 @@ projected_run:
   video_fps: 30
   video_speed: 1
   save_velocity_change_plot: true
-  state_path: plots_direct/steady/state_internal.pkl
-  eigenpairs_path: plots_direct/linearized/eigenpairs.pkl
   real_threshold: 1.0e-8
   projection_rcond: 1.0e-12

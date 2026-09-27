@@ -118,6 +118,11 @@ def solve_linearized_eigenmodes(
         f"||R(U0)||∞ = {base_residual_inf:.2e}"
     )
     console.print(f"  eig backend: {eig_message}")
+    if base_residual_inf > 1e-3:
+        console.print(
+            f"  [bold yellow]warning:[/bold yellow] ||R(U0)||∞ = {base_residual_inf:.2e} — "
+            f"{state_path} does not look like a steady state; run `steady` first"
+        )
 
     u_modes, v_modes, p_modes = full_mode_grids(cfg, eigenvectors)
     return LinearizedEigenResult(

@@ -65,23 +65,9 @@ def _resolve_project_path(path_text: str) -> Path:
     return path
 
 
-def _output_root(cfg: SimConfig, input_path_text: str | None) -> Path:
-    """Folder that receives this mode's results.
-
-    ``output_dir`` from the config wins.  Otherwise it is the top-level folder
-    of the mode's input file inside the project (``plots_fast/run/...`` ->
-    ``plots_fast``), falling back to ``plots``.
-    """
-    if cfg.output_dir:
-        return _resolve_project_path(cfg.output_dir)
-    if input_path_text:
-        try:
-            rel = _resolve_project_path(input_path_text).resolve().relative_to(PROJECT_DIR.resolve())
-        except ValueError:
-            rel = None
-        if rel is not None and len(rel.parts) > 1:
-            return PROJECT_DIR / rel.parts[0]
-    return PROJECT_DIR / "plots"
+def _stage_dir(cfg: SimConfig, stage: str) -> Path:
+    """Results folder of one stage: <output_dir>/<stage>."""
+    return _resolve_project_path(cfg.output_dir) / stage
 
 
 def _cell_centres(cfg: SimConfig) -> tuple[np.ndarray, np.ndarray]:
@@ -259,7 +245,7 @@ def _run_simulation(cfg: SimConfig) -> None:
                 f"saved dt={float(saved_dt):.3e}, new dt={cfg.dt:.3e}"
             )
 
-    out_dir = _output_root(cfg, None) / "run"
+    out_dir = _stage_dir(cfg, "run")
     console.print(f"  output: [dim]{out_dir}[/dim]")
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(cfg)
@@ -388,7 +374,7 @@ def _run_projected_run(cfg: SimConfig) -> None:
     _print_projected_run_config(runtime_cfg)
 
     lib_path = find_solver_lib(PROJECT_DIR)
-    out_dir = _output_root(runtime_cfg, runtime_cfg.projected_state_path) / "projected_run"
+    out_dir = _stage_dir(runtime_cfg, "projected_run")
     console.print(f"  output: [dim]{out_dir}[/dim]")
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(runtime_cfg)
@@ -522,7 +508,7 @@ def _run_projected_run(cfg: SimConfig) -> None:
 def _run_steady(cfg: SimConfig) -> None:
     _print_steady_config(cfg)
 
-    out_dir = _output_root(cfg, cfg.steady_initial_state_path) / "steady"
+    out_dir = _stage_dir(cfg, "steady")
     console.print(f"  output: [dim]{out_dir}[/dim]")
     out_dir.mkdir(parents=True, exist_ok=True)
     xc, yc = _cell_centres(cfg)
@@ -593,7 +579,7 @@ def _run_steady(cfg: SimConfig) -> None:
 def _run_linearize(cfg: SimConfig) -> None:
     _print_linearization_config(cfg)
 
-    out_dir = _output_root(cfg, cfg.linear_state_path) / "linearized"
+    out_dir = _stage_dir(cfg, "linearized")
     console.print(f"  output: [dim]{out_dir}[/dim]")
     result = solve_linearized_eigenmodes(cfg, PROJECT_DIR)
     eigen_path = save_linearized_eigenmodes(result, cfg, out_dir)
