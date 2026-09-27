@@ -249,14 +249,21 @@ def save_stabilization_correction_plot(
     alpha: float,
     out_dir: Path,
     projection: str = "field",
+    method: str = "feedback_field",
 ) -> Path:
-    """Plot the feedback correction ||delta_n||_inf and the deviation ||u^n - u_s||_inf."""
-    t_arr = np.asarray(t_history, dtype=np.float64)[: len(correction_history)]
+    """Deviation ||u^n - u_s||_inf versus time, plus the feedback correction
+    ||delta_n||_inf for the feedback methods.
+
+    Saved as ``stabilization_correction.png`` for feedback methods and as
+    ``deviation_from_steady.png`` otherwise.
+    """
+    is_feedback = method.startswith("feedback")
+    t_arr = np.asarray(t_history, dtype=np.float64)[: len(deviation_history)]
     corr = np.asarray(correction_history, dtype=np.float64)
     dev = np.asarray(deviation_history, dtype=np.float64)
     # Keep the per-bin maximum so short spikes survive the downsampling.
-    stride = max(1, len(corr) // 5000)
-    n_bins = len(corr) // stride
+    stride = max(1, len(dev) // 5000)
+    n_bins = len(dev) // stride
     if n_bins > 0:
         t_plot = t_arr[: n_bins * stride : stride]
         corr_plot = corr[: n_bins * stride].reshape(n_bins, stride).max(axis=1)
@@ -266,17 +273,18 @@ def save_stabilization_correction_plot(
 
     tiny = np.finfo(np.float64).tiny
     fig, ax = plt.subplots(figsize=(8.0, 4.5))
-    ax.semilogy(
-        t_plot,
-        np.maximum(corr_plot, tiny),
-        color="#ad1457",
-        linewidth=1.2,
-        label=(
-            r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi\,u^n$"
-            if projection == "field"
-            else r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi(u^n - u_s)$"
-        ),
-    )
+    if is_feedback:
+        ax.semilogy(
+            t_plot,
+            np.maximum(corr_plot, tiny),
+            color="#ad1457",
+            linewidth=1.2,
+            label=(
+                r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi\,u^n$"
+                if projection == "field"
+                else r"$\|\delta_n\|_\infty,\ \delta_n = \alpha\,\Pi(u^n - u_s)$"
+            ),
+        )
     ax.semilogy(
         t_plot,
         np.maximum(dev_plot, tiny),
@@ -285,7 +293,10 @@ def save_stabilization_correction_plot(
         alpha=0.8,
         label=r"$\|u^n - u_s\|_\infty$",
     )
-    ax.set_title(rf"Stabilising correction vs time ($\alpha = {alpha:g}$)")
+    if is_feedback:
+        ax.set_title(rf"Stabilising correction vs time ({method}, $\alpha = {alpha:g}$)")
+    else:
+        ax.set_title(f"Deviation from the steady state vs time ({method})")
     ax.set_xlabel("t")
     ax.set_ylabel("max-norm")
     ax.grid(True, which="both", alpha=0.3)
@@ -302,7 +313,7 @@ def save_stabilization_correction_plot(
             color="gray",
         )
     fig.tight_layout()
-    path = out_dir / "stabilization_correction.png"
+    path = out_dir / ("stabilization_correction.png" if is_feedback else "deviation_from_steady.png")
     fig.savefig(path, dpi=180)
     plt.close(fig)
     return path

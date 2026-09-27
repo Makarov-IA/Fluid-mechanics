@@ -387,6 +387,18 @@ class StokesMACLib:
             ct.c_double(alpha),
         )
 
+    def set_deviation_reference(self, u_ref: np.ndarray | None) -> None:
+        """Record ||u^n - u_ref||_inf every step (no control); None stops it."""
+        if u_ref is None:
+            self._dev_ref = None
+            self._dll.stokes_mac_set_deviation_reference_c(self._handle, self._maybe_double_ptr(None))
+            return
+        u = self._double_array(u_ref)
+        if u.shape != (self._nu + self._nv,):
+            raise ValueError("u_ref must have shape (velocity_size,)")
+        self._dev_ref = u
+        self._dll.stokes_mac_set_deviation_reference_c(self._handle, self._double_ptr(u))
+
     def take_control_history(
         self, capacity: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -670,6 +682,9 @@ class StokesMACLib:
             ct.c_double,
         ]
         dll.stokes_mac_set_stabilization_c.restype = None
+
+        dll.stokes_mac_set_deviation_reference_c.argtypes = [ct.c_void_p, double_ptr]
+        dll.stokes_mac_set_deviation_reference_c.restype = None
 
         dll.stokes_mac_take_control_history_c.argtypes = [ct.c_void_p, double_ptr, ct.c_int]
         dll.stokes_mac_take_control_history_c.restype = ct.c_int

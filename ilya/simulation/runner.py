@@ -102,6 +102,7 @@ def run_simulation(
     | None = None,
     description: str = "Simulation",
     stabilization: FeedbackStabilization | None = None,
+    deviation_reference: np.ndarray | None = None,
 ) -> SimulationResult:
     """Run the time integration using batch C++ steps."""
     snapshots: list[Snapshot] = []
@@ -155,6 +156,9 @@ def run_simulation(
                     stabilization.alpha,
                     u_diag=stabilization.u_steady,
                 )
+            elif deviation_reference is not None:
+                solver.set_deviation_reference(deviation_reference)
+            track_control = stabilization is not None or deviation_reference is not None
 
             step_done = 0
             for batch_start in range(0, cfg.n_steps, cfg.frame_every):
@@ -188,7 +192,7 @@ def run_simulation(
                 )
                 div_history.extend(divs.tolist())
                 velocity_change_history.extend(changes.tolist())
-                if stabilization is not None:
+                if track_control:
                     corr, dev, ratio = solver.take_control_history(batch_n)
                     correction_history.extend(corr.tolist())
                     deviation_history.extend(dev.tolist())

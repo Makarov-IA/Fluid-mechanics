@@ -1,7 +1,9 @@
 """Simulation from a steady state with the unstable modes suppressed.
 
-Two methods (``projected_run.method``):
+Methods (``projected_run.method``):
 
+* ``no_force`` — reference run: start from the steady state with the original
+  forcing and no stabilisation at all.
 * ``forcing``  — remove the component of [fu, fv] along the unstable modes
   once (open loop).
 * ``feedback_field`` / ``feedback_deviation`` — every time step the time
@@ -292,6 +294,28 @@ def build_feedback_stabilization(
         feedback_alpha=cfg.projected_feedback_alpha,
     )
     return mac_state, stabilization, info
+
+
+def build_uncontrolled_run(
+    cfg: SimConfig,
+    project_dir: Path,
+) -> tuple[MacState, ProjectionInfo]:
+    """Steady state for a reference run without any stabilisation."""
+    state_path = resolve_projected_state_path(project_dir, cfg)
+    mac_state, _ = load_mac_state_pickle(state_path, cfg, check_dt=False)
+    info = ProjectionInfo(
+        state_path=state_path,
+        eigenpairs_path=resolve_projected_eigenpairs_path(project_dir, cfg),
+        real_threshold=cfg.projected_real_threshold,
+        selected_indices=np.empty(0, dtype=np.int64),
+        selected_eigenvalues=np.empty(0, dtype=np.complex128),
+        basis_rank=0,
+        force_norm=0.0,
+        removed_norm=0.0,
+        remaining_norm=0.0,
+        method="no_force",
+    )
+    return mac_state, info
 
 
 def save_projection_info(info: ProjectionInfo, out_dir: Path) -> Path:

@@ -20,6 +20,7 @@ import imageio
 import imageio_ffmpeg
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.colors import BoundaryNorm
 import numpy as np
 from rich.console import Console
 from rich.progress import (
@@ -33,13 +34,7 @@ from rich.progress import (
 )
 
 from solver.config import SimConfig, Snapshot
-from viz.plots import (
-    draw_pressure,
-    draw_streamlines,
-    draw_vorticity,
-    fig_to_rgb,
-    style_axes,
-)
+from viz.plots import _field_colorbar, style_axes
 
 matplotlib.use("Agg")
 
@@ -52,7 +47,7 @@ _VIDEO_SPECS = [
 ]
 
 # Relative per-frame cost, used to size chunks (streamplot dominates).
-_FRAME_COST = {"streamlines": 3.0, "pressure": 1.0, "vorticity": 1.0}
+_FRAME_COST = {"streamlines": 4.5, "pressure": 1.0, "vorticity": 1.0}
 
 
 def _slim_snapshot(snap: Snapshot, kind: str) -> Snapshot:
@@ -67,16 +62,92 @@ def _slim_snapshot(snap: Snapshot, kind: str) -> Snapshot:
     )
 
 
+class _FrameRenderer:
+    """One reusable figure per worker process.
+
+    The filled field is an ``imshow`` quantised to the same colour levels as the
+    static ``contourf`` plots (so the colour bands match), the colour bar and the
+    layout are built once, and only the per-frame artists (contour lines,
+    streamlines, title) are redrawn.
+    """
+
+    _STYLE = {
+        "streamlines": ("viridis", "|u|", "Streamlines"),
+        "pressure": ("coolwarm", "p", "Pressure"),
+        "vorticity": ("coolwarm", "ω", "Vorticity"),
+    }
+
+    def __init__(self, kind: str, levels: np.ndarray, lx: float, ly: float,
+                 xc: np.ndarray, yc: np.ndarray) -> None:
+        if kind not in self._STYLE:
+            raise ValueError(f"Unknown video kind: {kind!r}")
+        self.kind, self.levels, self.lx, self.ly = kind, levels, lx, ly
+        self.xc, self.yc = xc, yc
+        self.x_grid, self.y_grid = np.meshgrid(xc, yc, indexing="ij")
+        cmap, label, self.title = self._STYLE[kind]
+
+        self.fig, self.ax = plt.subplots(figsize=(6.2, 6.0))
+        self.fig.set_dpi(110)
+        # Values outside the levels stay unfilled, as with contourf.
+        colormap = plt.get_cmap(cmap).copy()
+        colormap.set_under((0.0, 0.0, 0.0, 0.0))
+        colormap.set_over((0.0, 0.0, 0.0, 0.0))
+        norm = BoundaryNorm(levels, colormap.N)
+        self.image = self.ax.imshow(
+            np.zeros((len(yc), len(xc))),
+            origin="lower",
+            extent=(0.0, lx, 0.0, ly),
+            cmap=colormap,
+            norm=norm,
+            interpolation="bilinear",
+            aspect="equal",
+        )
+        _field_colorbar(self.fig, self.ax, self.image, self.x_grid, self.y_grid, label)
+        self.fig.axes[-1].minorticks_off()  # no tick per colour level
+        style_axes(self.ax, f"{self.title}, t=0.000", lx, ly)
+        self.fig.tight_layout()
+        self._base = self._children()
+
+    def _children(self) -> set[int]:
+        ax = self.ax
+        return {id(a) for a in (*ax.collections, *ax.patches, *ax.lines)}
+
+    def _clear_frame_artists(self) -> None:
+        ax = self.ax
+        for artist in (*ax.collections, *ax.patches, *ax.lines):
+            if id(artist) not in self._base:
+                artist.remove()
+
+    def render(self, snap: Snapshot) -> np.ndarray:
+        self._clear_frame_artists()
+        ax = self.ax
+        if self.kind == "streamlines":
+            self.image.set_data(np.hypot(snap.uc, snap.vc).T)
+            ax.streamplot(
+                self.xc, self.yc, snap.uc.T, snap.vc.T,
+                color="white", linewidth=0.8, density=1.5, arrowsize=0.9,
+            )
+        else:
+            field = snap.p if self.kind == "pressure" else snap.omega
+            self.image.set_data(field.T)
+            ax.contour(
+                self.x_grid, self.y_grid, field, levels=self.levels,
+                colors="black", linewidths=0.25, alpha=0.7,
+            )
+        ax.set_xlim(0.0, self.lx)
+        ax.set_ylim(0.0, self.ly)
+        ax.set_title(f"{self.title}, t={snap.t:.3f}", fontsize=10)
+        self.fig.canvas.draw()
+        return np.asarray(self.fig.canvas.buffer_rgba())[..., :3].copy()
+
+
 def _video_worker(task: dict) -> tuple[str, int, str]:
     """Render one chunk of frames for one video type into an MP4 segment."""
     kind: str = task["kind"]
     queue = task["queue"]
-    lx = task["lx"]
-    ly = task["ly"]
-    xc: np.ndarray = task["xc"]
-    yc: np.ndarray = task["yc"]
-    x_grid, y_grid = np.meshgrid(xc, yc, indexing="ij")
-    snapshots: list[Snapshot] = task["snapshots"]
+    renderer = _FrameRenderer(
+        kind, task["levels"], task["lx"], task["ly"], task["xc"], task["yc"]
+    )
 
     writer = imageio.get_writer(
         task["segment_path"],
@@ -85,28 +156,11 @@ def _video_worker(task: dict) -> tuple[str, int, str]:
         output_params=["-crf", "20"],
         macro_block_size=1,
     )
-
     with writer:
-        for snap in snapshots:
-            fig, ax = plt.subplots(figsize=(6.2, 6.0))
-
-            if kind == "streamlines":
-                draw_streamlines(ax, fig, snap, xc, yc, x_grid, y_grid, task["levels"])
-                title = f"Streamlines, t={snap.t:.3f}"
-            elif kind == "pressure":
-                draw_pressure(ax, fig, snap, x_grid, y_grid, task["levels"])
-                title = f"Pressure, t={snap.t:.3f}"
-            elif kind == "vorticity":
-                draw_vorticity(ax, fig, snap, x_grid, y_grid, task["levels"])
-                title = f"Vorticity, t={snap.t:.3f}"
-            else:
-                raise ValueError(f"Unknown video kind: {kind!r}")
-
-            style_axes(ax, title, lx, ly)
-            fig.tight_layout()
-            writer.append_data(fig_to_rgb(fig, dpi=110))
+        for snap in task["snapshots"]:
+            writer.append_data(renderer.render(snap))
             queue.put(kind)
-
+    plt.close(renderer.fig)
     return kind, task["chunk"], task["segment_path"]
 
 

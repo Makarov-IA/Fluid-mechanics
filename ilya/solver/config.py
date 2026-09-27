@@ -170,9 +170,12 @@ class SimConfig:
             raise ValueError("projected_video_fps must be positive")
         if self.projected_video_speed is not None and self.projected_video_speed <= 0:
             raise ValueError("projected_video_speed must be positive")
-        if self.projected_method not in ("forcing", "feedback_field", "feedback_deviation"):
+        if self.projected_method not in (
+            "no_force", "forcing", "feedback_field", "feedback_deviation"
+        ):
             raise ValueError(
-                "projected_run.method must be 'forcing', 'feedback_field' or 'feedback_deviation'"
+                "projected_run.method must be 'no_force', 'forcing', "
+                "'feedback_field' or 'feedback_deviation'"
             )
         if not (0.0 < self.projected_feedback_alpha < 2.0):
             raise ValueError("projected_run.feedback_alpha must lie in (0, 2)")

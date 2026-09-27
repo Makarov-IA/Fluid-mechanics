@@ -192,6 +192,9 @@ public:
     void set_stabilization(int m, const double* Q, const double* W,
                            const double* u_ref, const double* u_diag, double alpha);
 
+    // Record ||u^n - u_ref||_inf every step without any control (NULL stops).
+    void set_deviation_reference(const double* u_ref);
+
     // Copy the recorded per-step records
     //   (||delta_n||_inf, ||u^n - u_diag||_inf, ||f_c||_2 / ||F + f_c||_2),
     // f_c = -delta_n / dt, then clear them.  Returns steps copied.
@@ -273,7 +276,8 @@ private:
     int                 stab_m_ = 0;
     double              stab_alpha_ = 0.0;
     Eigen::MatrixXd     stab_Q_, stab_W_;
-    Eigen::VectorXd     stab_ustar_, stab_udiag_, stab_dev_, stab_coef_, stab_delta_;
+    Eigen::VectorXd     stab_ustar_, stab_udiag_, stab_u_, stab_dev_, stab_coef_, stab_delta_;
+    bool                diag_active_ = false;   // record ||u^n - stab_udiag_|| each step
     std::vector<double> control_history_;
 
     // -----------------------------------------------------------------------

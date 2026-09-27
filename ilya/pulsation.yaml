@@ -3,7 +3,7 @@
 # All results go here; every stage reads the previous one from fixed sub-paths:
 #   run -> <output_dir>/run, steady -> <output_dir>/steady,
 #   linearize -> <output_dir>/linearized, projected-run -> <output_dir>/projected_run
-output_dir: plots_direct
+output_dir: plots_force
 
 domain:
   lx: 1.0
@@ -64,6 +64,7 @@ linearization:
   krylov_dim: 80
 
 projected_run:
+  # no_force           — старт из стационара без стабилизации (F без изменений);
   # forcing            — F − Proj(F) once (open loop);
   # feedback_field     — each step ∂u/∂t uses u*ₙ = uⁿ − δₙ, δₙ = α·Π uⁿ
   #                      (uⁿ без своих неустойчивых гармоник)

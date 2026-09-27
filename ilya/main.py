@@ -18,6 +18,7 @@ from simulation.linearized import (
 from simulation.projected_run import (
     build_feedback_stabilization,
     build_projected_run,
+    build_uncontrolled_run,
     resolve_projected_eigenpairs_path,
     resolve_projected_state_path,
     save_projection_info,
@@ -197,9 +198,12 @@ def _print_projected_run_config(cfg: SimConfig) -> None:
     table.add_column(style="bold cyan")
     table.add_column(style="white")
     table.add_row("Start state", str(state_path))
-    table.add_row("Eigenpairs", str(eigenpairs_path))
-    table.add_row("Cutoff", f"Re(λ) > {cfg.projected_real_threshold}")
-    if cfg.projected_is_feedback:
+    if cfg.projected_method != "no_force":
+        table.add_row("Eigenpairs", str(eigenpairs_path))
+        table.add_row("Cutoff", f"Re(λ) > {cfg.projected_real_threshold}")
+    if cfg.projected_method == "no_force":
+        table.add_row("Method", "no_force: start from the steady state, no stabilisation (F unchanged)")
+    elif cfg.projected_is_feedback:
         delta = "α·Π uⁿ" if cfg.projected_feedback_projection == "field" else "α·Π(uⁿ − u_s)"
         table.add_row(
             "Method",
@@ -383,7 +387,10 @@ def _run_projected_run(cfg: SimConfig) -> None:
 
     force_modifier = None
     stabilization = None
-    if runtime_cfg.projected_is_feedback:
+    if runtime_cfg.projected_method == "no_force":
+        initial_state, projection_info = build_uncontrolled_run(runtime_cfg, PROJECT_DIR)
+        console.print("  no stabilisation: plain run from the steady state")
+    elif runtime_cfg.projected_is_feedback:
         initial_state, stabilization, projection_info = build_feedback_stabilization(
             runtime_cfg,
             PROJECT_DIR,
@@ -407,6 +414,10 @@ def _run_projected_run(cfg: SimConfig) -> None:
             f"removed |force|: {projection_info.removed_norm:.3e} / {projection_info.force_norm:.3e}"
         )
     projection_path = save_projection_info(projection_info, out_dir)
+    # every method records ||u^n - u_s||_inf (feedback via its own stabilisation)
+    deviation_reference = None
+    if stabilization is None:
+        deviation_reference = np.concatenate([initial_state.u_vec, initial_state.v_vec])
 
     result = run_simulation(
         runtime_cfg,
@@ -417,6 +428,7 @@ def _run_projected_run(cfg: SimConfig) -> None:
         force_modifier=force_modifier,
         description="Projected run",
         stabilization=stabilization,
+        deviation_reference=deviation_reference,
     )
     snapshots = result.snapshots
     final_snapshot = snapshots[-1]
@@ -433,14 +445,14 @@ def _run_projected_run(cfg: SimConfig) -> None:
             )
         correction_path: Path | None = None
         force_ratio_path: Path | None = None
-        if result.force_ratio_history:
+        if result.force_ratio_history and runtime_cfg.projected_is_feedback:
             force_ratio_path = save_feedback_force_ratio_plot(
                 result.t_history,
                 result.force_ratio_history,
                 runtime_cfg.projected_method,
                 out_dir,
             )
-        if result.correction_history:
+        if result.deviation_history:
             correction_path = save_stabilization_correction_plot(
                 result.t_history,
                 result.correction_history,
@@ -448,6 +460,7 @@ def _run_projected_run(cfg: SimConfig) -> None:
                 runtime_cfg.projected_feedback_alpha,
                 out_dir,
                 projection=runtime_cfg.projected_feedback_projection,
+                method=runtime_cfg.projected_method,
             )
         center_velocity_path = save_center_velocity_plot(
             snapshots,
@@ -502,7 +515,8 @@ def _run_projected_run(cfg: SimConfig) -> None:
     table.add_row("✓ projection", str(projection_path))
     table.add_row("✓ divergence", str(divergence_path))
     if correction_path is not None:
-        table.add_row("✓ correction |δₙ|(t)", str(correction_path))
+        label = "✓ correction |δₙ|(t)" if runtime_cfg.projected_is_feedback else "✓ deviation |uⁿ−u_s|(t)"
+        table.add_row(label, str(correction_path))
     if force_ratio_path is not None:
         table.add_row("✓ force share |f_c|/|F+f_c|", str(force_ratio_path))
     if velocity_change_path is not None:

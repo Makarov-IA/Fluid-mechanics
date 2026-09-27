@@ -1350,12 +1350,20 @@ void StokesMac2D::set_stabilization(int m, const double* Q, const double* W,
     stab_Q_ = Eigen::Map<const Eigen::MatrixXd>(Q, nvel, m);
     stab_W_ = Eigen::Map<const Eigen::MatrixXd>(W, nvel, m);
     stab_ustar_ = Eigen::Map<const Eigen::VectorXd>(u_star, nvel);
-    stab_udiag_ = Eigen::Map<const Eigen::VectorXd>(u_diag ? u_diag : u_star, nvel);
-    stab_dev_.resize(nvel);
     stab_coef_.resize(m);
     stab_delta_.resize(nvel);
     stab_alpha_ = alpha;
     stab_m_ = m;
+    set_deviation_reference(u_diag ? u_diag : u_star);
+}
+
+void StokesMac2D::set_deviation_reference(const double* u_ref) {
+    control_history_.clear();
+    const int nvel = nu_unknowns_ + nv_unknowns_;
+    diag_active_ = u_ref != nullptr;
+    if (diag_active_) stab_udiag_ = Eigen::Map<const Eigen::VectorXd>(u_ref, nvel);
+    stab_u_.resize(nvel);
+    stab_dev_.resize(nvel);
 }
 
 int StokesMac2D::take_control_history(double* out, int capacity_steps) {
@@ -1368,36 +1376,38 @@ int StokesMac2D::take_control_history(double* out, int capacity_steps) {
 }
 
 void StokesMac2D::apply_stabilization_to_rhs(const double* fu, const double* fv) {
-    if (stab_m_ <= 0) return;
+    const bool control = stab_m_ > 0;
+    if (!control && !diag_active_) return;
     const int nvel = nu_unknowns_ + nv_unknowns_;
     for (int j = 0; j < ny_; ++j)
-        for (int i = 1; i < nx_; ++i) {
-            const int k = u_unknown_idx(i, j);
-            stab_dev_[k] = u_[u_idx(i, j)] - stab_ustar_[k];
-        }
+        for (int i = 1; i < nx_; ++i) stab_u_[u_unknown_idx(i, j)] = u_[u_idx(i, j)];
     for (int j = 1; j < ny_; ++j)
-        for (int i = 0; i < nx_; ++i) {
-            const int k = v_unknown_idx(i, j);
-            stab_dev_[k] = v_[v_idx(i, j)] - stab_ustar_[k];
+        for (int i = 0; i < nx_; ++i) stab_u_[v_unknown_idx(i, j)] = v_[v_idx(i, j)];
+
+    double correction = 0.0, force_ratio = 0.0;
+    if (control) {
+        stab_dev_ = stab_u_ - stab_ustar_;
+        stab_coef_.noalias() = stab_W_.transpose() * stab_dev_;
+        stab_delta_.noalias() = stab_Q_ * stab_coef_;
+        stab_delta_ *= stab_alpha_;
+        // (u^{n+1} - u*_n)/dt with u*_n = u^n - delta_n  ->  RHS -= delta_n / dt
+        rhs_.head(nvel) -= stab_delta_ / dt_;
+        correction = stab_delta_.cwiseAbs().maxCoeff();
+        // share of the feedback force in the total force: |f_c|_2 / |F + f_c|_2,
+        // f_c = -delta_n / dt, F = [fu, fv] (same ordering as the velocity unknowns)
+        double fc2 = 0.0, tot2 = 0.0;
+        for (int k = 0; k < nvel; ++k) {
+            const double fc = -stab_delta_[k] / dt_;
+            const double f = k < nu_unknowns_ ? (fu ? fu[k] : 0.0) : (fv ? fv[k - nu_unknowns_] : 0.0);
+            fc2 += fc * fc;
+            tot2 += (f + fc) * (f + fc);
         }
-    stab_coef_.noalias() = stab_W_.transpose() * stab_dev_;
-    stab_delta_.noalias() = stab_Q_ * stab_coef_;
-    stab_delta_ *= stab_alpha_;
-    // (u^{n+1} - u*_n)/dt with u*_n = u^n - delta_n  ->  RHS -= delta_n / dt
-    rhs_.head(nvel) -= stab_delta_ / dt_;
-    control_history_.push_back(stab_delta_.cwiseAbs().maxCoeff());
-    // deviation from the diagnostic reference: u^n - u_diag = dev + u_ref - u_diag
-    control_history_.push_back((stab_dev_ + stab_ustar_ - stab_udiag_).cwiseAbs().maxCoeff());
-    // share of the feedback force in the total force: |f_c|_2 / |F + f_c|_2,
-    // f_c = -delta_n / dt, F = [fu, fv] (same ordering as the velocity unknowns)
-    double fc2 = 0.0, tot2 = 0.0;
-    for (int k = 0; k < nvel; ++k) {
-        const double fc = -stab_delta_[k] / dt_;
-        const double f = k < nu_unknowns_ ? (fu ? fu[k] : 0.0) : (fv ? fv[k - nu_unknowns_] : 0.0);
-        fc2 += fc * fc;
-        tot2 += (f + fc) * (f + fc);
+        force_ratio = tot2 > 0.0 ? std::sqrt(fc2 / tot2) : 0.0;
     }
-    control_history_.push_back(tot2 > 0.0 ? std::sqrt(fc2 / tot2) : 0.0);
+    const double deviation = diag_active_ ? (stab_u_ - stab_udiag_).cwiseAbs().maxCoeff() : 0.0;
+    control_history_.push_back(correction);
+    control_history_.push_back(deviation);
+    control_history_.push_back(force_ratio);
 }
 
 // ---------------------------------------------------------------------------
@@ -1853,6 +1863,11 @@ extern "C" void stokes_mac_set_stabilization_c(void* handle, int m, const double
                                                const double* u_diag, double alpha) {
     if (!handle) return;
     reinterpret_cast<StokesMac2D*>(handle)->set_stabilization(m, Q, W, u_star, u_diag, alpha);
+}
+
+extern "C" void stokes_mac_set_deviation_reference_c(void* handle, const double* u_ref) {
+    if (!handle) return;
+    reinterpret_cast<StokesMac2D*>(handle)->set_deviation_reference(u_ref);
 }
 
 extern "C" int stokes_mac_take_control_history_c(void* handle, double* out, int capacity_steps) {
