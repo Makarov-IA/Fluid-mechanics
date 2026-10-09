@@ -42,6 +42,8 @@ class SimulationResult:
     deviation_history: list[float] = field(default_factory=list)
     # ||f_c||_2 / ||F + f_c||_2 per step, f_c = -delta_n / dt
     force_ratio_history: list[float] = field(default_factory=list)
+    # control coefficients c_n = W^T (u^n - u_ref) per step, shape (steps, m)
+    control_coefficients: np.ndarray | None = None
 
 
 def _cell_centred_velocity(
@@ -113,6 +115,7 @@ def run_simulation(
     correction_history: list[float] = []
     deviation_history: list[float] = []
     force_ratio_history: list[float] = []
+    coefficient_batches: list[np.ndarray] = []
     converged = False
     n_batches = -(-cfg.n_steps // cfg.frame_every)
 
@@ -197,6 +200,10 @@ def run_simulation(
                     correction_history.extend(corr.tolist())
                     deviation_history.extend(dev.tolist())
                     force_ratio_history.extend(ratio.tolist())
+                if stabilization is not None:
+                    coefficient_batches.append(
+                        solver.take_control_coefficients(batch_n, stabilization.basis.shape[1])
+                    )
 
                 p, u, v = solver.get_fields()
                 u_vec, v_vec, p_vec = solver.get_state()
@@ -256,4 +263,5 @@ def run_simulation(
         correction_history=correction_history,
         deviation_history=deviation_history,
         force_ratio_history=force_ratio_history,
+        control_coefficients=np.vstack(coefficient_batches) if coefficient_batches else None,
     )

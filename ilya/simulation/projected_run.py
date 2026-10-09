@@ -2,8 +2,8 @@
 
 Methods (``projected_run.method``):
 
-* ``no_force`` — reference run: start from the steady state with the original
-  forcing and no stabilisation at all.
+* ``no_force`` — reference run: the original forcing and no stabilisation at
+  all (the start state is chosen by ``projected_run.start``).
 * ``forcing``  — remove the component of [fu, fv] along the unstable modes
   once (open loop).
 * ``feedback_field`` / ``feedback_deviation`` — every time step the time

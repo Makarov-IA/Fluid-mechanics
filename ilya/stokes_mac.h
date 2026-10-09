@@ -199,6 +199,10 @@ public:
     //   (||delta_n||_inf, ||u^n - u_diag||_inf, ||f_c||_2 / ||F + f_c||_2),
     // f_c = -delta_n / dt, then clear them.  Returns steps copied.
     static constexpr int kControlRecord = 3;
+
+    // Copy the recorded per-step control coefficients c_n = W^T (u^n - u_ref)
+    // (m values per step, step-major), then clear them.  Returns steps copied.
+    int take_control_coefficients(double* out, int capacity_steps);
     int take_control_history(double* out, int capacity_steps);
 
     int solve_linearized_eigenmodes(int n_eigs,
@@ -279,6 +283,7 @@ private:
     Eigen::VectorXd     stab_ustar_, stab_udiag_, stab_u_, stab_dev_, stab_coef_, stab_delta_;
     bool                diag_active_ = false;   // record ||u^n - stab_udiag_|| each step
     std::vector<double> control_history_;
+    std::vector<double> coef_history_;   // c_n per step, m values each
 
     // -----------------------------------------------------------------------
     // Pre-allocated work buffers — avoid per-step heap allocation

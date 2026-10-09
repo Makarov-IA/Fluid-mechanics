@@ -399,6 +399,14 @@ class StokesMACLib:
         self._dev_ref = u
         self._dll.stokes_mac_set_deviation_reference_c(self._handle, self._double_ptr(u))
 
+    def take_control_coefficients(self, capacity: int, m: int) -> np.ndarray:
+        """Per-step control coefficients c_n = W^T (u^n - u_ref), shape (steps, m)."""
+        out = np.empty((max(capacity, 0), m), dtype=np.float64)
+        n = self._dll.stokes_mac_take_control_coefficients_c(
+            self._handle, self._double_ptr(out), ct.c_int(out.shape[0])
+        )
+        return out[:n].copy()
+
     def take_control_history(
         self, capacity: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -685,6 +693,9 @@ class StokesMACLib:
 
         dll.stokes_mac_set_deviation_reference_c.argtypes = [ct.c_void_p, double_ptr]
         dll.stokes_mac_set_deviation_reference_c.restype = None
+
+        dll.stokes_mac_take_control_coefficients_c.argtypes = [ct.c_void_p, double_ptr, ct.c_int]
+        dll.stokes_mac_take_control_coefficients_c.restype = ct.c_int
 
         dll.stokes_mac_take_control_history_c.argtypes = [ct.c_void_p, double_ptr, ct.c_int]
         dll.stokes_mac_take_control_history_c.restype = ct.c_int

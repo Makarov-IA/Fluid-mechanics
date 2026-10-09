@@ -319,6 +319,88 @@ def save_stabilization_correction_plot(
     return path
 
 
+def _mac_to_centres(vec: np.ndarray, nx: int, ny: int) -> tuple[np.ndarray, np.ndarray]:
+    """Cell-centred (ny, nx) components of a velocity-space vector [u_vec, v_vec]."""
+    nu = (nx - 1) * ny
+    u = np.pad(vec[:nu].reshape(ny, nx - 1), ((0, 0), (1, 1)))
+    v = np.pad(vec[nu:].reshape(ny - 1, nx), ((1, 1), (0, 0)))
+    return 0.5 * (u[:, :-1] + u[:, 1:]), 0.5 * (v[:-1, :] + v[1:, :])
+
+
+def save_magnet_force_plot(actuator, direction: np.ndarray, cfg: SimConfig, out_dir: Path) -> Path:
+    """Magnets over the domain: theoretical feedback force and the magnet force."""
+    from matplotlib.patches import Rectangle
+
+    c = np.asarray(direction, dtype=np.float64)
+    c = c / np.linalg.norm(c)
+    xc = (np.arange(cfg.nx) + 0.5) * cfg.lx / cfg.nx
+    yc = (np.arange(cfg.ny) + 0.5) * cfg.ly / cfg.ny
+    step = max(1, cfg.nx // 24)
+    panels = [
+        (actuator.exact_basis @ c, "theoretical stabilising force"),
+        (actuator.basis @ c, f"force of {len(actuator.centres)} magnets"),
+    ]
+    fig, axes = plt.subplots(1, 2, figsize=(13.0, 3.9))
+    for ax, (vec, title) in zip(axes, panels):
+        fu, fv = _mac_to_centres(vec, cfg.nx, cfg.ny)
+        mag = np.hypot(fu, fv)
+        scale = max(float(mag.max()), 1e-300)
+        im = ax.imshow(mag, origin="lower", extent=(0, cfg.lx, 0, cfg.ly), cmap="magma", vmin=0.0, vmax=scale)
+        ax.quiver(xc[::step], yc[::step], fu[::step, ::step], fv[::step, ::step],
+                  color="white", scale=scale * 30, width=0.002)
+        for k, (cx, cy) in enumerate(actuator.centres):
+            h = actuator.size / 2
+            ax.add_patch(Rectangle((cx - h, cy - h), actuator.size, actuator.size,
+                                   fill=False, ec="#4fc3f7", lw=1.2, ls="--"))
+            ax.text(cx, cy, str(k + 1), color="#4fc3f7", ha="center", va="center", fontsize=8)
+        ax.set_title(title, fontsize=10)
+        ax.set_xlim(0, cfg.lx); ax.set_ylim(0, cfg.ly); ax.set_aspect("equal")
+        fig.colorbar(im, ax=ax, shrink=0.85, label="|f|")
+    fig.tight_layout()
+    path = out_dir / "magnets_force.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def save_magnet_time_plot(
+    t_history: list[float],
+    difference: np.ndarray,
+    perpendicular: np.ndarray,
+    out_dir: Path,
+) -> Path:
+    """|f_mag - f_theory| / |f_theory| and |f_mag - proj_{f_theory} f_mag| / |F| versus time."""
+    n = min(len(t_history), len(difference))
+    t = np.asarray(t_history[:n], dtype=np.float64)
+    stride = max(1, n // 5000)
+    # zero / undefined values (e.g. zero force on the first step) are not drawn
+    d = np.where(difference[:n] > 0, difference[:n], np.nan)
+    p = np.where(perpendicular[:n] > 0, perpendicular[:n], np.nan)
+    fig, ax = plt.subplots(figsize=(8.0, 4.5))
+    ax.semilogy(t[::stride], d[::stride], color="#ad1457",
+                linewidth=1.2, label=r"$|f_{mag} - f_{theory}|\,/\,|f_{theory}|$")
+    ax.semilogy(t[::stride], p[::stride], color="#1565c0", linewidth=1.2, linestyle="--",
+                label=r"$|f_{mag} - \mathrm{proj}_{f_{theory}} f_{mag}|\,/\,|F|$")
+    ax.set_xlabel("t")
+    ax.set_ylabel("relative value (L2 norms)")
+    # label 1, 2, 5 in every decade so the axis is readable even within one decade
+    finite = np.concatenate([d[np.isfinite(d)], p[np.isfinite(p)]])
+    if finite.size:
+        ax.set_ylim(finite.min() / 2.0, finite.max() * 2.0)
+    from matplotlib.ticker import LogFormatterSciNotation, LogLocator, NullFormatter
+    ax.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
+    ax.yaxis.set_major_formatter(LogFormatterSciNotation(labelOnlyBase=False))
+    ax.yaxis.set_minor_formatter(NullFormatter())
+    ax.set_title("Magnet force vs theoretical stabilising force")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    path = out_dir / "magnets_time.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
 def save_feedback_force_ratio_plot(
     t_history: list[float],
     ratio_history: list[float],

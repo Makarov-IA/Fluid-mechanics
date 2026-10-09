@@ -1354,6 +1354,7 @@ void StokesMac2D::set_stabilization(int m, const double* Q, const double* W,
     stab_delta_.resize(nvel);
     stab_alpha_ = alpha;
     stab_m_ = m;
+    coef_history_.clear();
     set_deviation_reference(u_diag ? u_diag : u_star);
 }
 
@@ -1364,6 +1365,15 @@ void StokesMac2D::set_deviation_reference(const double* u_ref) {
     if (diag_active_) stab_udiag_ = Eigen::Map<const Eigen::VectorXd>(u_ref, nvel);
     stab_u_.resize(nvel);
     stab_dev_.resize(nvel);
+}
+
+int StokesMac2D::take_control_coefficients(double* out, int capacity_steps) {
+    if (stab_m_ <= 0) return 0;
+    const int steps = static_cast<int>(coef_history_.size() / stab_m_);
+    const int n = std::min(steps, std::max(capacity_steps, 0));
+    if (out && n > 0) std::copy(coef_history_.begin(), coef_history_.begin() + stab_m_ * n, out);
+    coef_history_.erase(coef_history_.begin(), coef_history_.begin() + stab_m_ * n);
+    return n;
 }
 
 int StokesMac2D::take_control_history(double* out, int capacity_steps) {
@@ -1388,6 +1398,7 @@ void StokesMac2D::apply_stabilization_to_rhs(const double* fu, const double* fv)
     if (control) {
         stab_dev_ = stab_u_ - stab_ustar_;
         stab_coef_.noalias() = stab_W_.transpose() * stab_dev_;
+        coef_history_.insert(coef_history_.end(), stab_coef_.data(), stab_coef_.data() + stab_m_);
         stab_delta_.noalias() = stab_Q_ * stab_coef_;
         stab_delta_ *= stab_alpha_;
         // (u^{n+1} - u*_n)/dt with u*_n = u^n - delta_n  ->  RHS -= delta_n / dt
@@ -1868,6 +1879,11 @@ extern "C" void stokes_mac_set_stabilization_c(void* handle, int m, const double
 extern "C" void stokes_mac_set_deviation_reference_c(void* handle, const double* u_ref) {
     if (!handle) return;
     reinterpret_cast<StokesMac2D*>(handle)->set_deviation_reference(u_ref);
+}
+
+extern "C" int stokes_mac_take_control_coefficients_c(void* handle, double* out, int capacity_steps) {
+    if (!handle) return 0;
+    return reinterpret_cast<StokesMac2D*>(handle)->take_control_coefficients(out, capacity_steps);
 }
 
 extern "C" int stokes_mac_take_control_history_c(void* handle, double* out, int capacity_steps) {

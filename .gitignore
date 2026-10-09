@@ -42,6 +42,8 @@ dkms.conf
 __pycache__/
 *.pyc
 
+ilya/plots*/**
+
 # Build/generated
 alex/build/
 alex/cpu/build/

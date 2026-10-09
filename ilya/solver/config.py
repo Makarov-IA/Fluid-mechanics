@@ -99,6 +99,16 @@ class SimConfig:
     projected_real_threshold: float = 1.0
     projected_projection_rcond: float = 1e-12
     projected_method: str = "forcing"
+    projected_start: str = "steady"
+    # how the feedback force is applied: exact formula or N magnets
+    projected_actuator: str = "exact"
+    magnets_layout: str = "optimal"
+    magnets_count: int = 2
+    magnets_array: tuple[int, int] = (4, 2)
+    magnets_size: float = 0.1
+    magnets_gap: float = 0.01
+    magnets_thickness: float = 0.02
+    magnets_layer: float = 0.01
     projected_feedback_alpha: float = 1.0
 
     # Results folder; every stage reads/writes fixed sub-paths inside it.
@@ -170,6 +180,16 @@ class SimConfig:
             raise ValueError("projected_video_fps must be positive")
         if self.projected_video_speed is not None and self.projected_video_speed <= 0:
             raise ValueError("projected_video_speed must be positive")
+        if self.projected_actuator not in ("exact", "magnets"):
+            raise ValueError("projected_run.actuator must be 'exact' or 'magnets'")
+        if self.magnets_layout not in ("optimal", "array"):
+            raise ValueError("projected_run.magnets.layout must be 'optimal' or 'array'")
+        if self.magnets_count < 1 or min(self.magnets_array) < 1:
+            raise ValueError("projected_run.magnets.count and array must be positive")
+        if min(self.magnets_size, self.magnets_gap, self.magnets_thickness, self.magnets_layer) <= 0:
+            raise ValueError("projected_run.magnets sizes must be positive")
+        if self.projected_start not in ("steady", "initial"):
+            raise ValueError("projected_run.start must be 'steady' or 'initial'")
         if self.projected_method not in (
             "no_force", "forcing", "feedback_field", "feedback_deviation"
         ):
@@ -277,6 +297,7 @@ class SimConfig:
         linear = data.get("linearization", {}) or {}
         projected = data.get("projected_run", {}) or {}
         linear_solver = data.get("linear_solver", {}) or {}
+        magnets = projected.get("magnets", {}) or {}
 
         legacy = [
             f"{section}.{key}"
@@ -344,6 +365,15 @@ class SimConfig:
             projected_real_threshold=projected.get("real_threshold", 1.0),
             projected_projection_rcond=projected.get("projection_rcond", 1e-12),
             projected_method=str(projected.get("method", "forcing")),
+            projected_start=str(projected.get("start", "steady")),
+            projected_actuator=str(projected.get("actuator", "exact")),
+            magnets_layout=str(magnets.get("layout", "optimal")),
+            magnets_count=int(magnets.get("count", 2)),
+            magnets_array=tuple(int(v) for v in magnets.get("array", (4, 2))),
+            magnets_size=float(magnets.get("size", 0.1)),
+            magnets_gap=float(magnets.get("gap", 0.01)),
+            magnets_thickness=float(magnets.get("thickness", 0.02)),
+            magnets_layer=float(magnets.get("layer", 0.01)),
             projected_feedback_alpha=float(projected.get("feedback_alpha", 1.0)),
             output_dir=str(data.get("output_dir", "plots")),
             linear_solver_method=str(linear_solver.get("method", "direct")),

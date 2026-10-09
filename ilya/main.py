@@ -23,6 +23,7 @@ from simulation.projected_run import (
     resolve_projected_state_path,
     save_projection_info,
 )
+from simulation.magnets import build_magnet_actuator
 from simulation.runner import run_simulation
 from simulation.steady import solve_steady
 from solver.config import SimConfig, Snapshot
@@ -37,6 +38,8 @@ from viz.plots import (
     save_final_figure,
     save_feedback_force_ratio_plot,
     save_iterate_change_plot,
+    save_magnet_force_plot,
+    save_magnet_time_plot,
     save_stabilization_correction_plot,
     save_mac_state_pickle,
     save_state_pickle,
@@ -197,12 +200,28 @@ def _print_projected_run_config(cfg: SimConfig) -> None:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="bold cyan")
     table.add_column(style="white")
-    table.add_row("Start state", str(state_path))
+    if cfg.projected_start == "initial":
+        table.add_row("Start state", "initial: fluid at rest, t = 0 (same as `run`)")
+    else:
+        table.add_row("Start state", f"steady: {state_path}")
+    table.add_row("Steady state u_s", str(state_path))
     if cfg.projected_method != "no_force":
         table.add_row("Eigenpairs", str(eigenpairs_path))
         table.add_row("Cutoff", f"Re(λ) > {cfg.projected_real_threshold}")
     if cfg.projected_method == "no_force":
-        table.add_row("Method", "no_force: start from the steady state, no stabilisation (F unchanged)")
+        table.add_row("Method", "no_force: no stabilisation (F unchanged)")
+    if cfg.projected_is_feedback:
+        if cfg.projected_actuator == "magnets":
+            layout = (
+                f"{cfg.magnets_count} magnets, optimal placement, size {cfg.magnets_size}"
+                if cfg.magnets_layout == "optimal"
+                else f"array {cfg.magnets_array[0]}×{cfg.magnets_array[1]}"
+            )
+            table.add_row("Actuator", f"magnets: {layout}")
+        else:
+            table.add_row("Actuator", "exact: f_c = −δₙ/Δt")
+    if cfg.projected_method == "no_force":
+        pass
     elif cfg.projected_is_feedback:
         delta = "α·Π uⁿ" if cfg.projected_feedback_projection == "field" else "α·Π(uⁿ − u_s)"
         table.add_row(
@@ -387,9 +406,10 @@ def _run_projected_run(cfg: SimConfig) -> None:
 
     force_modifier = None
     stabilization = None
+    actuator = None
     if runtime_cfg.projected_method == "no_force":
         initial_state, projection_info = build_uncontrolled_run(runtime_cfg, PROJECT_DIR)
-        console.print("  no stabilisation: plain run from the steady state")
+        console.print("  no stabilisation (F unchanged)")
     elif runtime_cfg.projected_is_feedback:
         initial_state, stabilization, projection_info = build_feedback_stabilization(
             runtime_cfg,
@@ -402,6 +422,15 @@ def _run_projected_run(cfg: SimConfig) -> None:
             f"  feedback on {len(projection_info.selected_indices)} mode(s) [{modes}]   "
             f"projector rank: {projection_info.basis_rank}   α = {runtime_cfg.projected_feedback_alpha}"
         )
+        if runtime_cfg.projected_actuator == "magnets":
+            with console.status("[cyan]Placing magnets…[/cyan]"):
+                actuator = build_magnet_actuator(runtime_cfg, stabilization.basis)
+            stabilization.basis = actuator.basis
+            centres = ", ".join(f"({x:.3f}, {y:.3f})" for x, y in actuator.centres)
+            console.print(
+                f"  magnets: {len(actuator.centres)} at {centres}\n"
+                f"  least-squares fit error |B S − Q|/|Q| = {np.round(actuator.fit_error, 3)}"
+            )
     else:
         initial_state, force_modifier, projection_info = build_projected_run(
             runtime_cfg,
@@ -414,10 +443,13 @@ def _run_projected_run(cfg: SimConfig) -> None:
             f"removed |force|: {projection_info.removed_norm:.3e} / {projection_info.force_norm:.3e}"
         )
     projection_path = save_projection_info(projection_info, out_dir)
-    # every method records ||u^n - u_s||_inf (feedback via its own stabilisation)
+    # the builders return the steady state u_s: the deviation reference / target
     deviation_reference = None
     if stabilization is None:
         deviation_reference = np.concatenate([initial_state.u_vec, initial_state.v_vec])
+    if runtime_cfg.projected_start == "initial":
+        initial_state = None  # the solver starts from rest, like `run`
+        console.print("  start: fluid at rest (t = 0)")
 
     result = run_simulation(
         runtime_cfg,
@@ -445,6 +477,26 @@ def _run_projected_run(cfg: SimConfig) -> None:
             )
         correction_path: Path | None = None
         force_ratio_path: Path | None = None
+        magnet_paths: list[Path] = []
+        if actuator is not None and result.control_coefficients is not None:
+            coefs = result.control_coefficients
+            nonzero = np.flatnonzero(np.linalg.norm(coefs, axis=1) > 0)
+            direction = coefs[nonzero[-1]] if len(nonzero) else np.eye(coefs.shape[1])[0]
+            magnet_paths.append(save_magnet_force_plot(actuator, direction, runtime_cfg, out_dir))
+            diff, perp, theory = actuator.difference_norms(
+                coefs, runtime_cfg.projected_feedback_alpha, runtime_cfg.dt
+            )
+            fu0, fv0 = runtime_cfg.make_force_arrays(t=0.0)
+            base_force = float(np.sqrt(
+                (0.0 if fu0 is None else np.sum(np.square(fu0)))
+                + (0.0 if fv0 is None else np.sum(np.square(fv0)))
+            ))
+            with np.errstate(invalid="ignore", divide="ignore"):
+                rel_diff = np.where(theory > 0, diff / theory, np.nan)
+                rel_perp = perp / base_force if base_force > 0 else np.full_like(perp, np.nan)
+            magnet_paths.append(
+                save_magnet_time_plot(result.t_history, rel_diff, rel_perp, out_dir)
+            )
         if result.force_ratio_history and runtime_cfg.projected_is_feedback:
             force_ratio_path = save_feedback_force_ratio_plot(
                 result.t_history,
@@ -519,6 +571,8 @@ def _run_projected_run(cfg: SimConfig) -> None:
         table.add_row(label, str(correction_path))
     if force_ratio_path is not None:
         table.add_row("✓ force share |f_c|/|F+f_c|", str(force_ratio_path))
+    for path in magnet_paths:
+        table.add_row(f"✓ {path.stem}", str(path))
     if velocity_change_path is not None:
         table.add_row("✓ velocity-change", str(velocity_change_path))
     table.add_row("✓ control-point velocity", str(center_velocity_path))
