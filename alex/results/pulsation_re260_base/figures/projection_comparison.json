@@ -1,0 +1,62 @@
+{
+  "metric": "relative full-grid Euclidean distances, separately psi and omega",
+  "modal_metric": "unweighted Euclidean, concatenated interior psi and omega",
+  "sampling": "saved snapshots; residual CSV rows",
+  "intervention": "full subtraction versus dt*gain RHS term; different strengths",
+  "runs": {
+    "pulsation_re260_base": {
+      "snapshots": 1001,
+      "completed_steps": 1000000,
+      "pseudo_time": 10.0,
+      "converged": false,
+      "final_psi_distance": 0.786673114650274,
+      "final_omega_distance": 0.4084234898089916,
+      "final_modal_norm": 436.6945763205582,
+      "max_saved_modal_norm": 447.60815144947173,
+      "min_psi_distance": 0.07768124515133652,
+      "time_of_min_psi": 3.02001,
+      "min_omega_distance": 0.06011252620995361,
+      "time_of_min_omega": 2.10001,
+      "final_psi_residual": 0.08053992311060076,
+      "final_omega_residual": 14.447099665624277,
+      "elapsed_seconds": 152.7486089580343,
+      "baseline_reused_from": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260/binaries"
+    },
+    "pulsation_re260_projection": {
+      "snapshots": 1001,
+      "completed_steps": 1000000,
+      "pseudo_time": 10.0,
+      "converged": false,
+      "final_psi_distance": 1.3979081320559685e-08,
+      "final_omega_distance": 1.580028993701101e-08,
+      "final_modal_norm": 8.191270700259752e-16,
+      "max_saved_modal_norm": 2.9347193518094613e-14,
+      "min_psi_distance": 1.3979081320559685e-08,
+      "time_of_min_psi": 10.0,
+      "min_omega_distance": 1.580028993701101e-08,
+      "time_of_min_omega": 10.0,
+      "final_psi_residual": 5.112101880699882e-09,
+      "final_omega_residual": 1.0551716300710723e-06,
+      "elapsed_seconds": 263.6324862080073,
+      "baseline_reused_from": null
+    },
+    "pulsation_re260_rhs": {
+      "snapshots": 1001,
+      "completed_steps": 1000000,
+      "pseudo_time": 10.0,
+      "converged": false,
+      "final_psi_distance": 0.00011882988731218408,
+      "final_omega_distance": 7.682304248836666e-05,
+      "final_modal_norm": 0.08851998552920104,
+      "max_saved_modal_norm": 30.328711279753286,
+      "min_psi_distance": 0.00011882988731218408,
+      "time_of_min_psi": 10.0,
+      "min_omega_distance": 7.682304248836666e-05,
+      "time_of_min_omega": 10.0,
+      "final_psi_residual": 2.450741752391128e-05,
+      "final_omega_residual": 0.003916574937864237,
+      "elapsed_seconds": 272.8030122499913,
+      "baseline_reused_from": null
+    }
+  }
+}

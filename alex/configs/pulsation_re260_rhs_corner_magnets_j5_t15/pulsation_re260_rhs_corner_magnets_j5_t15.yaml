@@ -1,0 +1,50 @@
+version: 1
+grid:
+  nx: 201
+  ny: 101
+  lx: 1.0
+  ly: 0.5
+physics:
+  re: 260.0
+time:
+  mode: fixed_dt_steps
+  n_time_steps: 1500000
+  steady_tolerance: 1.0e-10
+  dt: 1.0e-5
+boundaries:
+  left: {u: 0.0, v: 0.0}
+  right: {u: 0.0, v: 0.0}
+  bottom: {u: 0.0, v: 0.0}
+  top: {u: 0.0, v: 0.0}
+execution:
+  threads: 1
+output:
+  save_every_step: 1000
+  log_every_step: 50000
+forcing:
+  type: custom
+  file: ../../solver_python/sources/harmonics.py
+stabilization:
+  file: ../../results/pulsation_re260_base/linear_stability/stabilization.npz
+  gain: -1.0
+  method: rhs
+  components: state
+# Additional prescribed actuation; the existing feedback refers to the BASE problem.
+# Zero initial fields, no resume. All magnets are active from the first step.
+magnetic_actuation:
+  reference: base_forcing
+  type: magnets
+  # [x_m, y_m, dipole-to-bottom distance_m, individual axial field_T].
+  # Hypothetical dipoles, not dimensions/specifications of purchased magnets.
+  magnets:
+    - [0.012, -0.0024, 0.015, 0.005]
+    - [0.228, -0.0024, 0.015, 0.005]
+    - [0.012, 0.1224, 0.015, -0.005]
+    - [0.228, 0.1224, 0.015, -0.005]
+  density_kg_m3: 1000.0
+  current_density_A_m2: [0.0, 5.0]
+  plane_height_m: 0.0
+  scales:
+    length_m: 0.24
+    velocity_m_s: 0.0010833333333333333
+    kinematic_viscosity_m2_s: 1.0e-6

@@ -1,0 +1,25 @@
+mode_file: /Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_base/linear_stability/stabilization.npz
+physics:
+  length_m: 0.24
+  velocity_m_s: 0.0010833333333333333
+  density_kg_m3: 1000.0
+  current_density_A_m2:
+  - 0.0
+  - 0.1
+  bottom_thickness_m: 0.002
+  plane_height_m: 0.002
+magnets:
+  count: 2
+  size_m:
+  - 0.01
+  - 0.01
+  - 0.005
+  gap_m: 0.005
+  magnetization_A_m: 800000.0
+  edge_clearance_m: 0.002
+  spacing_m: 0.002
+search:
+  seed: 42
+  maxiter: 60
+  popsize: 10
+  tolerance: 1.0e-05

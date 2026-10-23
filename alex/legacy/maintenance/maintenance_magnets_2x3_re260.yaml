@@ -1,0 +1,67 @@
+version: 1
+grid:
+  nx: 201
+  ny: 101
+  lx: 1.0
+  ly: 0.5
+physics:
+  re: 260.0
+time:
+  mode: fixed_dt_steps
+  n_time_steps: 101
+  steady_tolerance: 1.0e-10
+  dt: 0.0001
+boundaries:
+  left:
+    u: 0.0
+    v: 0.0
+  right:
+    u: 0.0
+    v: 0.0
+  bottom:
+    u: 0.0
+    v: 0.0
+  top:
+    u: 0.0
+    v: 0.0
+execution:
+  threads: 1
+output:
+  save_every_step: 50
+  log_every_step: 50
+forcing:
+  type: magnets
+  magnets:
+  - - 0.06
+    - 0.0
+    - 0.04
+    - 0.005
+  - - 0.06
+    - 0.06
+    - 0.04
+    - -0.005
+  - - 0.06
+    - 0.12
+    - 0.04
+    - 0.005
+  - - 0.18
+    - 0.0
+    - 0.04
+    - -0.005
+  - - 0.18
+    - 0.06
+    - 0.04
+    - 0.005
+  - - 0.18
+    - 0.12
+    - 0.04
+    - -0.005
+  density_kg_m3: 1000.0
+  current_density_A_m2:
+  - 0.0
+  - 0.1
+  plane_height_m: 0.0
+  scales:
+    length_m: 0.24
+    velocity_m_s: 0.0010833333333333333
+    kinematic_viscosity_m2_s: 1.0e-06

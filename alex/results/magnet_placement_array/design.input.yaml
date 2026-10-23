@@ -1,0 +1,40 @@
+# Model geometry and actuator limits; not article measurements. Offline design only.
+mode_file: ../../results/pulsation_re260_base/linear_stability/stabilization.npz
+physics:
+  length_m: 0.24
+  velocity_m_s: 0.0010833333333333333
+  density_kg_m3: 1000.0
+  current_density_A_m2:
+  - 0.0
+  - 0.1
+  bottom_thickness_m: 0.002
+  plane_height_m: 0.002
+magnets:
+  count: 192
+  size_m:
+  - 0.01
+  - 0.01
+  - 0.005
+  gap_m: 0.005
+  magnetization_A_m: 800000.0
+  edge_clearance_m: 0.002
+  spacing_m: 0.002
+  frame_extension_m: 0.012
+search:
+  method: greedy_dictionary
+  candidate_pitch_m:
+  - 0.012
+  - 0.012
+  comparison_counts:
+  - 2
+  - 6
+  - 12
+  - 24
+  - 48
+  - 96
+  - 144
+  - 192
+control:
+  modal_history: ../../results/pulsation_re260_base_t30/tables/full_state_projection_history.csv
+  gain: 1.0
+  max_amplitude: 1.0

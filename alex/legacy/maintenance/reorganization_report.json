@@ -1,0 +1,17 @@
+{
+  "active_experiments": [
+    "magnets_2x3_re260",
+    "pulsation_re260",
+    "pulsation_re260_stabilized"
+  ],
+  "kernel_sha256_unchanged": "84212ad5e8a76227766537f954624b0a0ae3a886189a910e9e02f97b563e27a9",
+  "performance_decision": "Allocation and loop-fusion candidates had no reproducible speed advantage (~1% variation); original kernels and per-step arithmetic retained.",
+  "compatibility_fix": "Stabilization checks source and walls, not only grid/Re; old bundles validated against original-equation equilibrium residual.",
+  "all_changes_under_alex": true,
+  "migration_manifest": "legacy/maintenance/migration.json",
+  "pipeline_verification": "legacy/maintenance/pipeline_verification.json",
+  "performance_trial": "legacy/maintenance/allocation_trial_benchmark.json",
+  "tests_passed": 50,
+  "final_bitwise_comparison_steps_per_case": 5000,
+  "final_benchmark": "legacy/maintenance/after_benchmark.json"
+}

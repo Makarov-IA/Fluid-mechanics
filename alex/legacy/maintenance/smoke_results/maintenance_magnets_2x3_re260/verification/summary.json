@@ -1,0 +1,16 @@
+{
+  "experiment": "maintenance_magnets_2x3_re260",
+  "scheme": "factorized",
+  "jacobian": "arakawa",
+  "time_kind": "pseudo_time",
+  "status": "completed",
+  "threads": 1,
+  "config": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/legacy/maintenance/maintenance_magnets_2x3_re260.yaml",
+  "output_dir": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/maintenance_magnets_2x3_re260/verification",
+  "completed_steps": 101,
+  "converged": false,
+  "psi_res": 0.00410163703267518,
+  "omega_res": 4.880200213869956,
+  "pseudo_time": 0.010100000000000001,
+  "elapsed_seconds": 0.01567191700451076
+}

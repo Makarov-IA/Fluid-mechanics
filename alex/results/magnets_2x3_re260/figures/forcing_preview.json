@@ -1,0 +1,110 @@
+{
+  "experiment": "magnets_2x3_re260",
+  "config": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/configs/magnets_2x3_re260/magnets_2x3_re260.yaml",
+  "forcing": "magnets",
+  "grid": [
+    201,
+    101
+  ],
+  "lx": 1.0,
+  "ly": 0.5,
+  "re": 260.0,
+  "source_range_nondimensional": [
+    -1.0403462434783703,
+    1.0403462434783706
+  ],
+  "source_spectrum": [
+    {
+      "m": 2,
+      "n": 2,
+      "coefficient": 0.8116377196243054,
+      "relative": 1.0
+    },
+    {
+      "m": 6,
+      "n": 2,
+      "coefficient": -0.31014275828951143,
+      "relative": -0.3821196955127612
+    },
+    {
+      "m": 2,
+      "n": 6,
+      "coefficient": 0.12306082862921858,
+      "relative": 0.1516203912826791
+    },
+    {
+      "m": 6,
+      "n": 6,
+      "coefficient": -0.0683482052806445,
+      "relative": -0.08421023768126724
+    },
+    {
+      "m": 2,
+      "n": 4,
+      "coefficient": 0.006161242449885911,
+      "relative": 0.007591123848627753
+    },
+    {
+      "m": 8,
+      "n": 2,
+      "coefficient": 0.001462008101574355,
+      "relative": 0.0018013062555188983
+    },
+    {
+      "m": 6,
+      "n": 4,
+      "coefficient": -0.001203676029391536,
+      "relative": -0.0014830213040723378
+    },
+    {
+      "m": 4,
+      "n": 2,
+      "coefficient": 0.0007038482857153249,
+      "relative": 0.0008671951397738456
+    }
+  ],
+  "figure": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/magnets_2x3_re260/figures/forcing_preview.png",
+  "magnets": [
+    [
+      0.06,
+      0.0,
+      0.04,
+      0.005
+    ],
+    [
+      0.06,
+      0.06,
+      0.04,
+      -0.005
+    ],
+    [
+      0.06,
+      0.12,
+      0.04,
+      0.005
+    ],
+    [
+      0.18,
+      0.0,
+      0.04,
+      -0.005
+    ],
+    [
+      0.18,
+      0.06,
+      0.04,
+      0.005
+    ],
+    [
+      0.18,
+      0.12,
+      0.04,
+      -0.005
+    ]
+  ],
+  "length_scale_m": 0.24,
+  "Bz_range_T": [
+    -0.005032926305655094,
+    0.005032926305655094
+  ]
+}

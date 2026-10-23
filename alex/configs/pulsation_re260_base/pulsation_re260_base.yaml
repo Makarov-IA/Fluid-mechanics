@@ -1,0 +1,34 @@
+version: 1
+grid:
+  nx: 201
+  ny: 101
+  lx: 1.0
+  ly: 0.5
+physics:
+  re: 260.0
+time:
+  mode: fixed_dt_steps
+  n_time_steps: 1000000
+  steady_tolerance: 1.0e-10
+  dt: 1.0e-05
+boundaries:
+  left:
+    u: 0.0
+    v: 0.0
+  right:
+    u: 0.0
+    v: 0.0
+  bottom:
+    u: 0.0
+    v: 0.0
+  top:
+    u: 0.0
+    v: 0.0
+execution:
+  threads: 1
+output:
+  save_every_step: 1000
+  log_every_step: 50000
+forcing:
+  type: custom
+  file: ../../solver_python/sources/harmonics.py

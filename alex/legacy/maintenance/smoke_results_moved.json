@@ -1,0 +1,14 @@
+[
+  {
+    "from": "results/maintenance_pulsation_re260_stabilized",
+    "to": "legacy/maintenance/smoke_results/maintenance_pulsation_re260_stabilized"
+  },
+  {
+    "from": "results/maintenance_magnets_2x3_re260",
+    "to": "legacy/maintenance/smoke_results/maintenance_magnets_2x3_re260"
+  },
+  {
+    "from": "results/maintenance_pulsation_re260",
+    "to": "legacy/maintenance/smoke_results/maintenance_pulsation_re260"
+  }
+]

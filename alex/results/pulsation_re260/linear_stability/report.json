@@ -1,0 +1,35 @@
+{
+  "initial_snapshot": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/stationary/pulsation_re260/stationary_state.bin",
+  "newton_iterations": 4,
+  "newton_history": [
+    2.743804096747401,
+    0.4263258463352493,
+    0.001784682525787673,
+    1.0518988347030245e-08,
+    1.8633983245308627e-12
+  ],
+  "solver_residuals": [
+    1.8633983245308627e-12,
+    1.7976731214730535e-12
+  ],
+  "jacobian_check": {
+    "assembled_vs_tangent": 2.330546098811774e-16,
+    "tangent_vs_fd": 2.330546098811774e-16
+  },
+  "unstable_eigenvalues": [
+    [
+      0.2170110023769786,
+      1.7868186726289885
+    ],
+    [
+      0.2170110023769786,
+      -1.7868186726289885
+    ]
+  ],
+  "eigen_residual_max": 6.508288251437836e-10,
+  "gain": 1.0,
+  "shift_error": 1.3759991504629613e-12,
+  "stabilized_max_real": -0.4011093389938685,
+  "stable_eigenvalues_unchanged_to": 1.0622139027303318e-11,
+  "stabilization_file": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/linear_stability/pulsation_re260/stabilization.npz"
+}

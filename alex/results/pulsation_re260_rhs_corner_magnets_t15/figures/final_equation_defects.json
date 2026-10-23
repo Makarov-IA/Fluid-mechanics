@@ -1,0 +1,15 @@
+{
+  "base_residual": [
+    0.11138030939384436,
+    17.84505883384524
+  ],
+  "with_magnets_without_modal_feedback": [
+    0.11138030939384436,
+    17.839853916803172
+  ],
+  "with_magnets_and_modal_addition": [
+    0.0006697601043424012,
+    0.13421954932404417
+  ],
+  "note": "Pointwise equation defects at the final saved pair, not factorized step increments or proof of physical stability."
+}

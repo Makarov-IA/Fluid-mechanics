@@ -1,0 +1,16 @@
+{
+  "experiment": "maintenance_pulsation_re260",
+  "scheme": "factorized",
+  "jacobian": "arakawa",
+  "time_kind": "pseudo_time",
+  "status": "completed",
+  "threads": 1,
+  "config": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/legacy/maintenance/maintenance_pulsation_re260.yaml",
+  "output_dir": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/maintenance_pulsation_re260/binaries",
+  "completed_steps": 101,
+  "converged": false,
+  "psi_res": 0.029542368457686725,
+  "omega_res": 35.3477858225631,
+  "pseudo_time": 0.00101,
+  "elapsed_seconds": 0.01534591599192936
+}

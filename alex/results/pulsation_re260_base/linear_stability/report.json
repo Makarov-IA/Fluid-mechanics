@@ -1,0 +1,23 @@
+{
+  "baseline_reused_from": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260",
+  "baseline_steps_replayed_bitwise": 1001,
+  "baseline_total_steps": 1000000,
+  "equilibrium_residuals": [
+    1.8633983245308627e-12,
+    1.7976731214730535e-12
+  ],
+  "unstable_eigenvalues": [
+    [
+      0.2170110023769786,
+      1.7868186726289885
+    ],
+    [
+      0.2170110023769786,
+      -1.7868186726289885
+    ]
+  ],
+  "state_basis_rank": 2,
+  "state_metric": "unweighted Euclidean inner product of concatenated interior psi and omega",
+  "spectrum_scope": "physical operator with psi eliminated, not full-state feedback spectrum",
+  "basis_file_sha256": "8a872ae7f0c2fc099e7b4566704d59a05cee4cfb62c2b6a482d613d6b6ca2b75"
+}

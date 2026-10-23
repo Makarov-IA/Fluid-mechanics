@@ -1,0 +1,24 @@
+[python] pulsation_re260_rhs_t30_test: 201x101, Re=260, dt=1e-05, threads=1, forcing=custom
+[python] Compiling/loading numerical kernels...
+[python] step=0 tau=1e-05 Rpsi=3.540e-04 Romega=3.540e+01 control=4.615e-01
+[python] step=50000 tau=0.50001 Rpsi=6.113e-02 Romega=1.869e+01 control=3.466e-01
+[python] step=100000 tau=1.00001 Rpsi=4.042e-02 Romega=1.659e+01 control=9.122e-01
+[python] step=150000 tau=1.50001 Rpsi=2.116e-02 Romega=1.044e+01 control=2.235e+00
+[python] step=200000 tau=2.00001 Rpsi=2.422e-02 Romega=7.468e+00 control=3.594e+00
+[python] step=250000 tau=2.50001 Rpsi=7.948e-02 Romega=1.327e+01 control=6.745e+00
+[python] step=300000 tau=3.00001 Rpsi=1.151e-01 Romega=1.927e+01 control=1.160e+01
+[python] step=350000 tau=3.50001 Rpsi=1.501e-01 Romega=5.352e+01 control=1.844e+01
+[python] step=400000 tau=4.00001 Rpsi=1.394e-01 Romega=5.731e+01 control=1.975e+01
+[python] step=450000 tau=4.50001 Rpsi=1.522e-01 Romega=3.045e+01 control=2.244e+01
+[python] step=500000 tau=5.00001 Rpsi=1.813e-01 Romega=3.279e+01 control=1.783e+01
+[python] step=550000 tau=5.50001 Rpsi=1.320e-01 Romega=2.347e+01 control=1.257e+01
+[python] step=600000 tau=6.00001 Rpsi=9.779e-02 Romega=1.242e+01 control=1.403e+01
+[python] step=650000 tau=6.50001 Rpsi=9.554e-02 Romega=1.357e+01 control=1.512e+01
+[python] step=700000 tau=7.00001 Rpsi=9.785e-02 Romega=1.466e+01 control=1.561e+01
+[python] step=750000 tau=7.50001 Rpsi=1.006e-01 Romega=1.524e+01 control=1.577e+01
+[python] step=800000 tau=8.00001 Rpsi=1.025e-01 Romega=1.548e+01 control=1.595e+01
+[python] step=850000 tau=8.50001 Rpsi=1.032e-01 Romega=1.572e+01 control=1.623e+01
+[python] step=900000 tau=9.00001 Rpsi=1.039e-01 Romega=1.602e+01 control=1.650e+01
+[python] step=950000 tau=9.50001 Rpsi=1.049e-01 Romega=1.630e+01 control=1.670e+01
+[python] step=999999 tau=10 Rpsi=1.060e-01 Romega=1.652e+01 control=1.686e+01
+[python] completed: /Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_rhs_t30_test/binaries

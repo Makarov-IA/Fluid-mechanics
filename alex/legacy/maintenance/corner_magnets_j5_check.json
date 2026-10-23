@@ -1,0 +1,13 @@
+{
+  "steps": 10000,
+  "time": 0.1,
+  "residuals": [
+    0.1049708411467063,
+    124.44610702603823
+  ],
+  "finite_fields": true,
+  "magnetic_source_scale": 10,
+  "base_source_identical": true,
+  "state_basis_identical": true,
+  "same_grid_dt_and_scheme": true
+}

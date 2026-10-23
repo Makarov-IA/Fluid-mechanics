@@ -1,0 +1,21 @@
+[python] pulsation_re260_rhs_t30_test: 201x101, Re=260, dt=1e-05, threads=1, forcing=custom
+[python] Compiling/loading numerical kernels...
+[python] step=0 tau=1e-05 Rpsi=2.451e-05 Romega=3.917e-03 control=1.860e-03
+[python] step=50000 tau=0.50001 Rpsi=4.185e-05 Romega=6.975e-03 control=4.191e-03
+[python] step=100000 tau=1.00001 Rpsi=5.821e-05 Romega=1.163e-02 control=6.816e-03
+[python] step=150000 tau=1.50001 Rpsi=1.416e-04 Romega=2.685e-02 control=1.484e-02
+Traceback (most recent call last):
+  File "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/solver_python/run.py", line 192, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/solver_python/run.py", line 184, in main
+    result = run(cfg)
+  File "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/solver_python/run.py", line 114, in run
+    rp, rw = solver.step()
+             ~~~~~~~~~~~^^
+  File "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/solver_python/solver.py", line 182, in step
+    result = self.compute_residuals()
+  File "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/solver_python/solver.py", line 165, in compute_residuals
+    values = k.residuals(self.psi, self.omega, self.source, self.nu,
+                         self.idx2, self.idy2, self.inv_4dxdy)
+KeyboardInterrupt

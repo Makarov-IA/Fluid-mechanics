@@ -1,0 +1,46 @@
+{
+  "experiment": "pulsation_re260_rhs_t30_test",
+  "scheme": "factorized",
+  "jacobian": "arakawa",
+  "time_kind": "pseudo_time",
+  "status": "failed",
+  "threads": 1,
+  "config": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/configs/pulsation_re260_rhs_t30_test/pulsation_re260_rhs_t30_test.yaml",
+  "output_dir": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_rhs_t30_test/binaries",
+  "completed_steps": 175471,
+  "initial_state": {
+    "time_origin": 0.0,
+    "step_count": "new steps from the loaded fields",
+    "omega_boundaries": "recomputed from loaded psi and YAML walls",
+    "fields": {
+      "psi": {
+        "file": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_rhs/binaries/result_999999.bin",
+        "source_step": 999999,
+        "source_time": 10.0,
+        "source_re": 260.0,
+        "sha256": "98b987b2eaf61e844dab2e1bbb02e5017ca2cfb21c8293f277a424d73054066b"
+      },
+      "omega": {
+        "file": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_rhs/binaries/result_999999.bin",
+        "source_step": 999999,
+        "source_time": 10.0,
+        "source_re": 260.0,
+        "sha256": "98b987b2eaf61e844dab2e1bbb02e5017ca2cfb21c8293f277a424d73054066b"
+      }
+    },
+    "psi_res": 2.450741752391128e-05,
+    "omega_res": 0.003916574937864237
+  },
+  "stabilization": {
+    "file": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_base/linear_stability/stabilization.npz",
+    "gain": -1.0,
+    "method": "rhs",
+    "components": "state"
+  },
+  "stabilization_sha256": "8a872ae7f0c2fc099e7b4566704d59a05cee4cfb62c2b6a482d613d6b6ca2b75",
+  "control_units": "rate per pseudo-time",
+  "projection_metric": "unweighted Euclidean, interior (psi, omega)",
+  "error": "KeyboardInterrupt: ",
+  "pseudo_time": 1.7547100000000002,
+  "elapsed_seconds": 44.68925966700772
+}

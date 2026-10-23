@@ -1,0 +1,18 @@
+{
+  "count": 192,
+  "max_amplitude": 1.0,
+  "worst_error": 0.4523775487961839,
+  "valid_nonoverlapping_geometry": true,
+  "saved_fit_equals_GC": true,
+  "original_target_preserved": true,
+  "test_suite": "73 passed",
+  "result": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/magnet_placement_array",
+  "target_matrix_shape": [
+    19701,
+    2
+  ],
+  "grid": [
+    201,
+    101
+  ]
+}

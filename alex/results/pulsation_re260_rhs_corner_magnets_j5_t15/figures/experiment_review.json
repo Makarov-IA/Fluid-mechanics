@@ -1,0 +1,31 @@
+{
+  "comparison_time": 15.000000000000002,
+  "current_density_A_m2": [
+    0.5,
+    5.0
+  ],
+  "constant_from_start": true,
+  "comparison": {
+    "bottom_left": {
+      "psi_peak_ratio": 23.601821002272274,
+      "core_max_speed_ratio": 9.562231187733666,
+      "core_area_ratio": 3.06060606060606
+    },
+    "bottom_right": {
+      "psi_peak_ratio": 2.913337748972121,
+      "core_max_speed_ratio": 1.7453230091797909,
+      "core_area_ratio": 1.0294117647058825
+    },
+    "top_left": {
+      "psi_peak_ratio": 2.9133377489711374,
+      "core_max_speed_ratio": 1.7453230091803378,
+      "core_area_ratio": 1.0294117647058825
+    },
+    "top_right": {
+      "psi_peak_ratio": 23.60182100226512,
+      "core_max_speed_ratio": 9.562231187737797,
+      "core_area_ratio": 3.06060606060606
+    }
+  },
+  "conclusion": "Four stronger positive corner cores remain around a large central vortex. Central breakup and unlimited acceleration were not observed by pseudo-time 15."
+}

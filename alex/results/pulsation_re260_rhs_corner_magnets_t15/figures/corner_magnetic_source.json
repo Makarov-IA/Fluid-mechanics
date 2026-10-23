@@ -1,0 +1,10 @@
+{
+  "source_min": -0.07671777809405506,
+  "source_max": 11.207691195115483,
+  "source_relative_l2": 0.09374492264170195,
+  "magnetic_field_range_T": [
+    -0.00463774655158769,
+    0.0046377465515876895
+  ],
+  "geometry": "hypothetical point dipoles; not hardware specifications"
+}

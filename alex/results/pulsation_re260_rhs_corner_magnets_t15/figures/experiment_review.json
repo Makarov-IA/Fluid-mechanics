@@ -1,0 +1,61 @@
+{
+  "experiment": "pulsation_re260_rhs_corner_magnets_t15",
+  "completed_steps": 1500000,
+  "pseudo_time": 15.000000000000002,
+  "elapsed_seconds": 380.1683839999896,
+  "constant_magnets": true,
+  "corner_feedback": false,
+  "source_relative_l2": 0.09374492264170195,
+  "comparison": {
+    "bottom_left": {
+      "magnetic_time": 10.000010000000001,
+      "reference_time": 10.0,
+      "psi_peak_ratio": 7.464981400634561,
+      "core_circulation_ratio": 6.917801857362128
+    },
+    "bottom_right": {
+      "magnetic_time": 10.000010000000001,
+      "reference_time": 10.0,
+      "psi_peak_ratio": 1.4803054055281297,
+      "core_circulation_ratio": 1.280314825363052
+    },
+    "top_left": {
+      "magnetic_time": 10.000010000000001,
+      "reference_time": 10.0,
+      "psi_peak_ratio": 1.4803054055279465,
+      "core_circulation_ratio": 1.2803148253630843
+    },
+    "top_right": {
+      "magnetic_time": 10.000010000000001,
+      "reference_time": 10.0,
+      "psi_peak_ratio": 7.464981400634654,
+      "core_circulation_ratio": 6.917801857362894
+    }
+  },
+  "late_peak_change": {
+    "bottom_left": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": -0.07030363254453009
+    },
+    "bottom_right": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": 0.10741173089148282
+    },
+    "top_left": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": 0.10741173089161404
+    },
+    "top_right": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": -0.07030363254437089
+    }
+  },
+  "conclusion": "All four positive corner cores detected at tau=15. Constant magnetic actuation strengthened them near tau=10 versus the previous run, but did not produce monotone growth of all four. No infinite-time claim.",
+  "tests": 84,
+  "bitwise_baseline_check": "legacy/maintenance/corner_magnets_baseline_check.json",
+  "scope": "Numerical pseudo-time experiment; hypothetical point dipoles; original modal feedback retained."
+}

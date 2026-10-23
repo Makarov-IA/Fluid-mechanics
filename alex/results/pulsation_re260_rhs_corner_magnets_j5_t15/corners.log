@@ -1,0 +1,88 @@
+{
+  "source_min": -0.7671777809405506,
+  "source_max": 112.07691195115483,
+  "source_relative_l2": 0.9374492264170194,
+  "magnetic_field_range_T": [
+    -0.00463774655158769,
+    0.0046377465515876895
+  ],
+  "geometry": "hypothetical point dipoles; not hardware specifications"
+}
+{
+  "time_end": 15.000000000000002,
+  "final": [
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "bottom_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.055,
+      "y": 0.04,
+      "psi_peak": 0.0019460461301178025,
+      "core_area": 0.002525,
+      "core_circulation": 0.011262320026129464,
+      "core_max_speed": 0.08284660115366435,
+      "candidate_count": 1
+    },
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "bottom_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.92,
+      "y": 0.065,
+      "psi_peak": 0.003831705511459309,
+      "core_area": 0.007000000000000001,
+      "core_circulation": 0.023806809102275235,
+      "core_max_speed": 0.10299819745651724,
+      "candidate_count": 1
+    },
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "top_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.08,
+      "y": 0.435,
+      "psi_peak": 0.003831705511459617,
+      "core_area": 0.007000000000000001,
+      "core_circulation": 0.023806809102274357,
+      "core_max_speed": 0.10299819745650006,
+      "candidate_count": 1
+    },
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "top_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.9450000000000001,
+      "y": 0.46,
+      "psi_peak": 0.0019460461301179762,
+      "core_area": 0.002525,
+      "core_circulation": 0.011262320026129116,
+      "core_max_speed": 0.0828466011536504,
+      "candidate_count": 1
+    }
+  ]
+}
+[corners] 100/1501 frames
+[corners] 200/1501 frames
+[corners] 300/1501 frames
+[corners] 400/1501 frames
+[corners] 500/1501 frames
+[corners] 600/1501 frames
+[corners] 700/1501 frames
+[corners] 800/1501 frames
+[corners] 900/1501 frames
+[corners] 1000/1501 frames
+[corners] 1100/1501 frames
+[corners] 1200/1501 frames
+[corners] 1300/1501 frames
+[corners] 1400/1501 frames
+[corners] 1500/1501 frames
+[corners] 1501/1501 frames
+[corners] video: /Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_rhs_corner_magnets_j5_t15/videos/corners.mp4

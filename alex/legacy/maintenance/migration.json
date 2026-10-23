@@ -1,0 +1,236 @@
+[
+  {
+    "from": "results/binaries/pulsation_re260",
+    "to": "results/pulsation_re260/binaries",
+    "files": 1007,
+    "bytes": 650835226
+  },
+  {
+    "from": "results/binaries/magnets_2x3_re260",
+    "to": "results/magnets_2x3_re260/binaries",
+    "files": 15,
+    "bytes": 6831596
+  },
+  {
+    "from": "results/binaries/pulsation_re260_stabilized",
+    "to": "results/pulsation_re260_stabilized/binaries",
+    "files": 1008,
+    "bytes": 650890291
+  },
+  {
+    "from": "results/binaries",
+    "to": "legacy/results_by_category/binaries",
+    "files": 21,
+    "bytes": 7602450
+  },
+  {
+    "from": "results/figures/pulsation_re260",
+    "to": "results/pulsation_re260/figures",
+    "files": 3004,
+    "bytes": 774687497
+  },
+  {
+    "from": "results/figures/magnets_2x3_re260",
+    "to": "results/magnets_2x3_re260/figures",
+    "files": 33,
+    "bytes": 7863588
+  },
+  {
+    "from": "results/figures/pulsation_re260_stabilized",
+    "to": "results/pulsation_re260_stabilized/figures",
+    "files": 3009,
+    "bytes": 815466452
+  },
+  {
+    "from": "results/figures",
+    "to": "legacy/results_by_category/figures",
+    "files": 13,
+    "bytes": 3663843
+  },
+  {
+    "from": "results/videos/pulsation_re260",
+    "to": "results/pulsation_re260/videos",
+    "files": 3,
+    "bytes": 20077553
+  },
+  {
+    "from": "results/videos/pulsation_re260_stabilized",
+    "to": "results/pulsation_re260_stabilized/videos",
+    "files": 3,
+    "bytes": 7982270
+  },
+  {
+    "from": "results/videos",
+    "to": "legacy/results_by_category/videos",
+    "files": 11,
+    "bytes": 20010227
+  },
+  {
+    "from": "results/tables/pulsation_re260",
+    "to": "results/pulsation_re260/tables",
+    "files": 1,
+    "bytes": 59888984
+  },
+  {
+    "from": "results/tables/pulsation_re260_stabilized",
+    "to": "results/pulsation_re260_stabilized/tables",
+    "files": 1,
+    "bytes": 59888984
+  },
+  {
+    "from": "results/tables",
+    "to": "legacy/results_by_category/tables",
+    "files": 4,
+    "bytes": 1184
+  },
+  {
+    "from": "results/stationary/pulsation_re260",
+    "to": "results/pulsation_re260/stationary",
+    "files": 4,
+    "bytes": 1298196
+  },
+  {
+    "from": "results/stationary",
+    "to": "legacy/results_by_category/stationary",
+    "files": 1,
+    "bytes": 1
+  },
+  {
+    "from": "results/newton/pulsation_re260",
+    "to": "results/pulsation_re260/newton",
+    "files": 2,
+    "bytes": 649895
+  },
+  {
+    "from": "results/newton",
+    "to": "legacy/results_by_category/newton",
+    "files": 1,
+    "bytes": 1
+  },
+  {
+    "from": "results/linear_stability/pulsation_re260",
+    "to": "results/pulsation_re260/linear_stability",
+    "files": 5,
+    "bytes": 676149
+  },
+  {
+    "from": "results/linear_stability",
+    "to": "legacy/results_by_category/linear_stability",
+    "files": 1,
+    "bytes": 1
+  },
+  {
+    "from": "cpu",
+    "to": "legacy/cpu",
+    "files": 11,
+    "bytes": 148246
+  },
+  {
+    "from": "gpu",
+    "to": "legacy/gpu",
+    "files": 13,
+    "bytes": 60557
+  },
+  {
+    "from": "common",
+    "to": "legacy/common",
+    "files": 2,
+    "bytes": 17192
+  },
+  {
+    "from": "scripts",
+    "to": "legacy/scripts",
+    "files": 28,
+    "bytes": 265092
+  },
+  {
+    "from": "pipeline",
+    "to": "legacy/pipeline",
+    "files": 9,
+    "bytes": 1606
+  },
+  {
+    "from": "build",
+    "to": "legacy/build",
+    "files": 2,
+    "bytes": 117512
+  },
+  {
+    "from": "data",
+    "to": "legacy/data",
+    "files": 1002,
+    "bytes": 2239408772
+  },
+  {
+    "from": "docs",
+    "to": "legacy/docs",
+    "files": 2,
+    "bytes": 10721
+  },
+  {
+    "from": "linear_stability",
+    "to": "legacy/linear_stability",
+    "files": 4005,
+    "bytes": 2524966870
+  },
+  {
+    "from": "plots",
+    "to": "legacy/plots",
+    "files": 3003,
+    "bytes": 776658458
+  },
+  {
+    "from": "paper",
+    "to": "legacy/paper",
+    "files": 25,
+    "bytes": 7181934
+  },
+  {
+    "from": "presentation",
+    "to": "legacy/presentation",
+    "files": 30,
+    "bytes": 7240418
+  },
+  {
+    "from": "RUN",
+    "to": "legacy/RUN",
+    "files": 1,
+    "bytes": 1527
+  },
+  {
+    "from": "Makefile",
+    "to": "legacy/Makefile",
+    "files": 1,
+    "bytes": 163
+  },
+  {
+    "from": "requirements.txt",
+    "to": "legacy/requirements.txt",
+    "files": 1,
+    "bytes": 52
+  },
+  {
+    "from": "codex_handoff.zip",
+    "to": "legacy/codex_handoff.zip",
+    "files": 1,
+    "bytes": 10740583
+  },
+  {
+    "from": ".DS_Store",
+    "to": "legacy/.DS_Store",
+    "files": 1,
+    "bytes": 10244
+  },
+  {
+    "from": "solver_python/config.yaml",
+    "to": "legacy/configs/solver_python_original.yaml",
+    "files": 1,
+    "bytes": 4053
+  },
+  {
+    "from": "results/.DS_Store",
+    "to": "legacy/results_by_category/.DS_Store",
+    "files": 1,
+    "bytes": 8196
+  }
+]

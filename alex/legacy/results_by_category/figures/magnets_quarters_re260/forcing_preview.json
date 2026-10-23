@@ -1,0 +1,98 @@
+{
+  "experiment": "magnets_quarters_re260",
+  "config": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/solver_python/config.yaml",
+  "forcing": "magnets",
+  "grid": [
+    201,
+    101
+  ],
+  "lx": 1.0,
+  "ly": 0.5,
+  "re": 260.0,
+  "source_range_nondimensional": [
+    -3.3497870845496958,
+    3.3497870845496958
+  ],
+  "source_spectrum": [
+    {
+      "m": 2,
+      "n": 5,
+      "coefficient": -0.13682333479989792,
+      "relative": 1.0
+    },
+    {
+      "m": 6,
+      "n": 5,
+      "coefficient": 0.1307777159533376,
+      "relative": -0.9558144167776501
+    },
+    {
+      "m": 6,
+      "n": 3,
+      "coefficient": 0.08632093156139928,
+      "relative": -0.6308933464283878
+    },
+    {
+      "m": 2,
+      "n": 3,
+      "coefficient": -0.0830036984899286,
+      "relative": 0.6066487022211545
+    },
+    {
+      "m": 6,
+      "n": 1,
+      "coefficient": -0.029193337215489654,
+      "relative": 0.21336519284655994
+    },
+    {
+      "m": 2,
+      "n": 1,
+      "coefficient": 0.022538126319159975,
+      "relative": -0.1647242873602054
+    },
+    {
+      "m": 4,
+      "n": 1,
+      "coefficient": -0.00015620944408885397,
+      "relative": 0.0011416871567800036
+    },
+    {
+      "m": 8,
+      "n": 1,
+      "coefficient": -0.0001192540660307999,
+      "relative": 0.000871591576138728
+    }
+  ],
+  "figure": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/figures/magnets_quarters_re260/forcing_preview.png",
+  "magnets": [
+    [
+      0.06,
+      0.03,
+      0.01,
+      0.005
+    ],
+    [
+      0.18,
+      0.03,
+      0.01,
+      -0.005
+    ],
+    [
+      0.06,
+      0.09,
+      0.01,
+      -0.005
+    ],
+    [
+      0.18,
+      0.09,
+      0.01,
+      0.005
+    ]
+  ],
+  "length_scale_m": 0.24,
+  "Bz_range_T": [
+    -0.0050105999495159955,
+    0.0050105999495159955
+  ]
+}

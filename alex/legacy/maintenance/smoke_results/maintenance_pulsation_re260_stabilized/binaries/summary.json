@@ -1,0 +1,20 @@
+{
+  "experiment": "maintenance_pulsation_re260_stabilized",
+  "scheme": "factorized",
+  "jacobian": "arakawa",
+  "time_kind": "pseudo_time",
+  "status": "completed",
+  "threads": 1,
+  "config": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/legacy/maintenance/maintenance_pulsation_re260_stabilized.yaml",
+  "output_dir": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/maintenance_pulsation_re260_stabilized/binaries",
+  "completed_steps": 101,
+  "stabilization": {
+    "file": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260/linear_stability/stabilization.npz",
+    "gain": 1.0
+  },
+  "converged": false,
+  "psi_res": 0.02965792498166785,
+  "omega_res": 35.34780791953596,
+  "pseudo_time": 0.00101,
+  "elapsed_seconds": 0.02241733299160842
+}

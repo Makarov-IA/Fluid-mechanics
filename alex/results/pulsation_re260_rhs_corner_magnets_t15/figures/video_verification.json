@@ -1,0 +1,46 @@
+{
+  "psi": {
+    "frames": 1501,
+    "seconds": 75.05,
+    "fps": 20.0,
+    "size": [
+      1280,
+      736
+    ],
+    "bytes": 11217748,
+    "first_and_last_decoded": true
+  },
+  "omega": {
+    "frames": 1501,
+    "seconds": 75.05,
+    "fps": 20.0,
+    "size": [
+      1280,
+      736
+    ],
+    "bytes": 10526634,
+    "first_and_last_decoded": true
+  },
+  "streamplot": {
+    "frames": 1501,
+    "seconds": 75.05,
+    "fps": 20.0,
+    "size": [
+      1280,
+      736
+    ],
+    "bytes": 8651455,
+    "first_and_last_decoded": true
+  },
+  "corners": {
+    "frames": 1501,
+    "seconds": 75.05,
+    "fps": 20.0,
+    "size": [
+      1210,
+      770
+    ],
+    "bytes": 13571866,
+    "first_and_last_decoded": true
+  }
+}

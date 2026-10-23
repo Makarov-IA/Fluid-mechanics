@@ -1,0 +1,206 @@
+{
+  "experiment": "pulsation_re260_rhs_corner_magnets_t15",
+  "snapshots": 1501,
+  "time_end": 15.000000000000002,
+  "final": [
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "bottom_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.035,
+      "y": 0.025,
+      "psi_peak": 8.245321960243856e-05,
+      "core_area": 0.0008250000000000001,
+      "core_circulation": 0.0005911082084545367,
+      "core_max_speed": 0.00866394040545047,
+      "candidate_count": 1
+    },
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "bottom_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.91,
+      "y": 0.07,
+      "psi_peak": 0.0013152287313104032,
+      "core_area": 0.0068000000000000005,
+      "core_circulation": 0.011212941895608402,
+      "core_max_speed": 0.059013831201893636,
+      "candidate_count": 1
+    },
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "top_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.09,
+      "y": 0.43,
+      "psi_peak": 0.001315228731310953,
+      "core_area": 0.0068000000000000005,
+      "core_circulation": 0.011212941895606714,
+      "core_max_speed": 0.059013831201865305,
+      "candidate_count": 1
+    },
+    {
+      "step": 1499999,
+      "time": 15.000000000000002,
+      "corner": "top_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.965,
+      "y": 0.47500000000000003,
+      "psi_peak": 8.245321960247092e-05,
+      "core_area": 0.0008250000000000001,
+      "core_circulation": 0.0005911082084544048,
+      "core_max_speed": 0.008663940405445268,
+      "candidate_count": 1
+    }
+  ],
+  "detection": "Positive elliptic psi maxima in corner windows: 20% width, 25% height",
+  "core": "Connected psi > 0.5*psi_peak; diagnostic contour, not separatrix",
+  "missing": "Not detected or not localized in this window; not proof of extinction",
+  "reference_experiment": "pulsation_re260_rhs_t30_test",
+  "comparison_end": 10.0,
+  "late_peak_change": {
+    "bottom_left": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": -0.07030363254453009
+    },
+    "bottom_right": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": 0.10741173089148282
+    },
+    "top_left": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": 0.10741173089161404
+    },
+    "top_right": {
+      "from_time": 12.000010000000001,
+      "to_time": 15.000000000000002,
+      "relative_change": -0.07030363254437089
+    }
+  },
+  "at_common_time": [
+    {
+      "step": 1000000,
+      "time": 10.000010000000001,
+      "corner": "bottom_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.035,
+      "y": 0.025,
+      "psi_peak": 9.59512124061509e-05,
+      "core_area": 0.00095,
+      "core_circulation": 0.0007286382474537156,
+      "core_max_speed": 0.010413573936831544,
+      "candidate_count": 1
+    },
+    {
+      "step": 1000000,
+      "time": 10.000010000000001,
+      "corner": "bottom_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.92,
+      "y": 0.065,
+      "psi_peak": 0.001070386746713506,
+      "core_area": 0.005675,
+      "core_circulation": 0.008195113814646066,
+      "core_max_speed": 0.048405443655969105,
+      "candidate_count": 1
+    },
+    {
+      "step": 1000000,
+      "time": 10.000010000000001,
+      "corner": "top_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.08,
+      "y": 0.435,
+      "psi_peak": 0.001070386746713699,
+      "core_area": 0.005675,
+      "core_circulation": 0.008195113814645463,
+      "core_max_speed": 0.04840544365595888,
+      "candidate_count": 1
+    },
+    {
+      "step": 1000000,
+      "time": 10.000010000000001,
+      "corner": "top_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.965,
+      "y": 0.47500000000000003,
+      "psi_peak": 9.595121240616621e-05,
+      "core_area": 0.00095,
+      "core_circulation": 0.0007286382474536417,
+      "core_max_speed": 0.010413573936828638,
+      "candidate_count": 1
+    }
+  ],
+  "reference_at_common_time": [
+    {
+      "step": 999999,
+      "time": 10.0,
+      "corner": "bottom_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.02,
+      "y": 0.02,
+      "psi_peak": 1.2853509909347472e-05,
+      "core_area": 0.0005,
+      "core_circulation": 0.00010532800194013614,
+      "core_max_speed": 0.001929326191390497,
+      "candidate_count": 1
+    },
+    {
+      "step": 999999,
+      "time": 10.0,
+      "corner": "bottom_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.92,
+      "y": 0.065,
+      "psi_peak": 0.0007230850760364705,
+      "core_area": 0.005225,
+      "core_circulation": 0.006400858329764495,
+      "core_max_speed": 0.03894167327323253,
+      "candidate_count": 1
+    },
+    {
+      "step": 999999,
+      "time": 10.0,
+      "corner": "top_left",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.08,
+      "y": 0.435,
+      "psi_peak": 0.0007230850760366903,
+      "core_area": 0.005225,
+      "core_circulation": 0.006400858329763863,
+      "core_max_speed": 0.03894167327322107,
+      "candidate_count": 1
+    },
+    {
+      "step": 999999,
+      "time": 10.0,
+      "corner": "top_right",
+      "detected": true,
+      "localized_core": true,
+      "x": 0.98,
+      "y": 0.48,
+      "psi_peak": 1.2853509909349362e-05,
+      "core_area": 0.0005,
+      "core_circulation": 0.00010532800194011378,
+      "core_max_speed": 0.0019293261913896193,
+      "candidate_count": 1
+    }
+  ]
+}

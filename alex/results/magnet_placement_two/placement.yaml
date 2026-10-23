@@ -1,0 +1,18 @@
+magnets:
+- id: 1
+  center_m:
+  - 0.04265900612844941
+  - 0.04715213976262794
+  size_m: &id001
+  - 0.01
+  - 0.01
+  - 0.005
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 2
+  center_m:
+  - 0.09161233384285673
+  - 0.05076344436470891
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0

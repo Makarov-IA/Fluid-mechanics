@@ -1,0 +1,44 @@
+[python] pulsation_re260_rhs_t30: 201x101, Re=260, dt=1e-05, threads=1, forcing=custom
+[python] Compiling/loading numerical kernels...
+[python] step=0 tau=1e-05 Rpsi=2.451e-05 Romega=3.917e-03 control=1.860e-03
+[python] step=50000 tau=0.50001 Rpsi=1.583e-05 Romega=2.598e-03 control=1.545e-03
+[python] step=100000 tau=1.00001 Rpsi=8.060e-06 Romega=1.603e-03 control=9.259e-04
+[python] step=150000 tau=1.50001 Rpsi=7.279e-06 Romega=1.364e-03 control=7.625e-04
+[python] step=200000 tau=2.00001 Rpsi=5.665e-06 Romega=8.093e-04 control=3.968e-04
+[python] step=250000 tau=2.50001 Rpsi=3.734e-06 Romega=6.601e-04 control=3.888e-04
+[python] step=300000 tau=3.00001 Rpsi=1.422e-06 Romega=3.483e-04 control=2.362e-04
+[python] step=350000 tau=3.50001 Rpsi=2.038e-06 Romega=3.428e-04 control=1.725e-04
+[python] step=400000 tau=4.00001 Rpsi=1.317e-06 Romega=2.065e-04 control=1.229e-04
+[python] step=450000 tau=4.50001 Rpsi=7.820e-07 Romega=1.488e-04 control=8.651e-05
+[python] step=500000 tau=5.00001 Rpsi=5.423e-07 Romega=1.086e-04 control=6.414e-05
+[python] step=550000 tau=5.50001 Rpsi=5.013e-07 Romega=7.598e-05 control=3.592e-05
+[python] step=600000 tau=6.00001 Rpsi=3.263e-07 Romega=5.564e-05 control=3.295e-05
+[python] step=650000 tau=6.50001 Rpsi=1.384e-07 Romega=3.150e-05 control=1.806e-05
+[python] step=700000 tau=7.00001 Rpsi=1.641e-07 Romega=2.908e-05 control=1.543e-05
+[python] step=750000 tau=7.50001 Rpsi=1.090e-07 Romega=1.595e-05 control=9.417e-06
+[python] step=800000 tau=8.00001 Rpsi=7.280e-08 Romega=1.333e-05 control=7.807e-06
+[python] step=850000 tau=8.50001 Rpsi=3.824e-08 Romega=8.327e-06 control=5.235e-06
+[python] step=900000 tau=9.00001 Rpsi=4.298e-08 Romega=6.872e-06 control=3.266e-06
+[python] step=950000 tau=9.50001 Rpsi=2.776e-08 Romega=4.555e-06 control=2.708e-06
+[python] step=1000000 tau=10.00001 Rpsi=1.416e-08 Romega=2.814e-06 control=1.625e-06
+[python] step=1050000 tau=10.50001 Rpsi=1.275e-08 Romega=2.392e-06 control=1.337e-06
+[python] step=1100000 tau=11.00001 Rpsi=9.941e-09 Romega=1.421e-06 control=6.964e-07
+[python] step=1150000 tau=11.50001 Rpsi=6.551e-09 Romega=1.158e-06 control=6.820e-07
+[python] step=1200000 tau=12.00001 Rpsi=2.486e-09 Romega=6.099e-07 control=4.139e-07
+[python] step=1250000 tau=12.50001 Rpsi=3.573e-09 Romega=6.012e-07 control=3.027e-07
+[python] step=1300000 tau=13.00001 Rpsi=2.309e-09 Romega=3.619e-07 control=2.154e-07
+[python] step=1350000 tau=13.50001 Rpsi=1.373e-09 Romega=2.611e-07 control=1.518e-07
+[python] step=1400000 tau=14.00001 Rpsi=9.498e-10 Romega=1.903e-07 control=1.125e-07
+[python] step=1450000 tau=14.50001 Rpsi=8.794e-10 Romega=1.333e-07 control=6.303e-08
+[python] step=1500000 tau=15.00001 Rpsi=5.723e-10 Romega=9.756e-08 control=5.778e-08
+[python] step=1550000 tau=15.50001 Rpsi=2.432e-10 Romega=5.536e-08 control=3.165e-08
+[python] step=1600000 tau=16.00001 Rpsi=2.876e-10 Romega=5.099e-08 control=2.707e-08
+[python] step=1650000 tau=16.50001 Rpsi=1.912e-10 Romega=2.795e-08 control=1.649e-08
+[python] step=1700000 tau=17.00001 Rpsi=1.277e-10 Romega=2.339e-08 control=1.369e-08
+[python] step=1750000 tau=17.50001 Rpsi=6.700e-11 Romega=1.459e-08 control=9.176e-09
+[python] step=1800000 tau=18.00001 Rpsi=7.547e-11 Romega=1.206e-08 control=5.733e-09
+[python] step=1850000 tau=18.50001 Rpsi=4.878e-11 Romega=7.976e-09 control=4.754e-09
+[python] step=1900000 tau=19.00001 Rpsi=2.606e-11 Romega=5.176e-09 control=2.862e-09
+[python] step=1950000 tau=19.50001 Rpsi=2.229e-11 Romega=4.179e-09 control=2.341e-09
+[python] step=1999999 tau=20 Rpsi=1.736e-11 Romega=2.489e-09 control=1.220e-09
+[python] completed: /Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_rhs_t30/binaries

@@ -1,0 +1,1348 @@
+magnets:
+- id: 1
+  center_m:
+  - -0.005
+  - 0.020999999999999994
+  size_m: &id001
+  - 0.01
+  - 0.01
+  - 0.005
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 2
+  center_m:
+  - -0.005
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 3
+  center_m:
+  - -0.005
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 4
+  center_m:
+  - 0.007500000000000001
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 5
+  center_m:
+  - 0.007500000000000001
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 6
+  center_m:
+  - 0.007500000000000001
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 7
+  center_m:
+  - 0.007500000000000001
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 8
+  center_m:
+  - 0.007500000000000001
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 9
+  center_m:
+  - 0.007500000000000001
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 10
+  center_m:
+  - 0.02
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 11
+  center_m:
+  - 0.02
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 12
+  center_m:
+  - 0.02
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 13
+  center_m:
+  - 0.02
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 14
+  center_m:
+  - 0.02
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 15
+  center_m:
+  - 0.02
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 16
+  center_m:
+  - 0.02
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 17
+  center_m:
+  - 0.02
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 18
+  center_m:
+  - 0.03250000000000001
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 19
+  center_m:
+  - 0.03250000000000001
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 20
+  center_m:
+  - 0.03250000000000001
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 21
+  center_m:
+  - 0.03250000000000001
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 22
+  center_m:
+  - 0.03250000000000001
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 23
+  center_m:
+  - 0.03250000000000001
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 24
+  center_m:
+  - 0.03250000000000001
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 25
+  center_m:
+  - 0.03250000000000001
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 26
+  center_m:
+  - 0.03250000000000001
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 27
+  center_m:
+  - 0.045000000000000005
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 28
+  center_m:
+  - 0.045000000000000005
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 29
+  center_m:
+  - 0.045000000000000005
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 30
+  center_m:
+  - 0.045000000000000005
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 31
+  center_m:
+  - 0.045000000000000005
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 32
+  center_m:
+  - 0.045000000000000005
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 33
+  center_m:
+  - 0.045000000000000005
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 34
+  center_m:
+  - 0.045000000000000005
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 35
+  center_m:
+  - 0.045000000000000005
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 36
+  center_m:
+  - 0.045000000000000005
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 37
+  center_m:
+  - 0.0575
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 38
+  center_m:
+  - 0.0575
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 39
+  center_m:
+  - 0.0575
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 40
+  center_m:
+  - 0.0575
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 41
+  center_m:
+  - 0.0575
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 42
+  center_m:
+  - 0.0575
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 43
+  center_m:
+  - 0.0575
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 44
+  center_m:
+  - 0.0575
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 45
+  center_m:
+  - 0.0575
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 46
+  center_m:
+  - 0.0575
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 47
+  center_m:
+  - 0.0575
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 48
+  center_m:
+  - 0.07
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 49
+  center_m:
+  - 0.07
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 50
+  center_m:
+  - 0.07
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 51
+  center_m:
+  - 0.07
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 52
+  center_m:
+  - 0.07
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 53
+  center_m:
+  - 0.07
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 54
+  center_m:
+  - 0.07
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 55
+  center_m:
+  - 0.07
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 56
+  center_m:
+  - 0.07
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 57
+  center_m:
+  - 0.07
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 58
+  center_m:
+  - 0.0825
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 59
+  center_m:
+  - 0.0825
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 60
+  center_m:
+  - 0.0825
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 61
+  center_m:
+  - 0.0825
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 62
+  center_m:
+  - 0.0825
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 63
+  center_m:
+  - 0.0825
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 64
+  center_m:
+  - 0.0825
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 65
+  center_m:
+  - 0.0825
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 66
+  center_m:
+  - 0.0825
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 67
+  center_m:
+  - 0.0825
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 68
+  center_m:
+  - 0.095
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 69
+  center_m:
+  - 0.095
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 70
+  center_m:
+  - 0.095
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 71
+  center_m:
+  - 0.095
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 72
+  center_m:
+  - 0.095
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 73
+  center_m:
+  - 0.095
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 74
+  center_m:
+  - 0.095
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 75
+  center_m:
+  - 0.095
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 76
+  center_m:
+  - 0.095
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 77
+  center_m:
+  - 0.095
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 78
+  center_m:
+  - 0.095
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 79
+  center_m:
+  - 0.1075
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 80
+  center_m:
+  - 0.1075
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 81
+  center_m:
+  - 0.1075
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 82
+  center_m:
+  - 0.1075
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 83
+  center_m:
+  - 0.1075
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 84
+  center_m:
+  - 0.1075
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 85
+  center_m:
+  - 0.1075
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 86
+  center_m:
+  - 0.1075
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 87
+  center_m:
+  - 0.1075
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 88
+  center_m:
+  - 0.1075
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 89
+  center_m:
+  - 0.1075
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 90
+  center_m:
+  - 0.12
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 91
+  center_m:
+  - 0.12
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 92
+  center_m:
+  - 0.12
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 93
+  center_m:
+  - 0.12
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 94
+  center_m:
+  - 0.12
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 95
+  center_m:
+  - 0.12
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 96
+  center_m:
+  - 0.12
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 97
+  center_m:
+  - 0.12
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 98
+  center_m:
+  - 0.12
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 99
+  center_m:
+  - 0.12
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 100
+  center_m:
+  - 0.1325
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 101
+  center_m:
+  - 0.1325
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 102
+  center_m:
+  - 0.1325
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 103
+  center_m:
+  - 0.1325
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 104
+  center_m:
+  - 0.1325
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 105
+  center_m:
+  - 0.1325
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 106
+  center_m:
+  - 0.1325
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 107
+  center_m:
+  - 0.1325
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 108
+  center_m:
+  - 0.1325
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 109
+  center_m:
+  - 0.1325
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 110
+  center_m:
+  - 0.1325
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 111
+  center_m:
+  - 0.14500000000000002
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 112
+  center_m:
+  - 0.14500000000000002
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 113
+  center_m:
+  - 0.14500000000000002
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 114
+  center_m:
+  - 0.14500000000000002
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 115
+  center_m:
+  - 0.14500000000000002
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 116
+  center_m:
+  - 0.14500000000000002
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 117
+  center_m:
+  - 0.14500000000000002
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 118
+  center_m:
+  - 0.14500000000000002
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 119
+  center_m:
+  - 0.14500000000000002
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 120
+  center_m:
+  - 0.14500000000000002
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 121
+  center_m:
+  - 0.1575
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 122
+  center_m:
+  - 0.1575
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 123
+  center_m:
+  - 0.1575
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 124
+  center_m:
+  - 0.1575
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 125
+  center_m:
+  - 0.1575
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 126
+  center_m:
+  - 0.1575
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 127
+  center_m:
+  - 0.1575
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 128
+  center_m:
+  - 0.1575
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 129
+  center_m:
+  - 0.1575
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 130
+  center_m:
+  - 0.1575
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 131
+  center_m:
+  - 0.17
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 132
+  center_m:
+  - 0.17
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 133
+  center_m:
+  - 0.17
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 134
+  center_m:
+  - 0.17
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 135
+  center_m:
+  - 0.17
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 136
+  center_m:
+  - 0.17
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 137
+  center_m:
+  - 0.17
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 138
+  center_m:
+  - 0.17
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 139
+  center_m:
+  - 0.17
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 140
+  center_m:
+  - 0.17
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 141
+  center_m:
+  - 0.17
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 142
+  center_m:
+  - 0.1825
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 143
+  center_m:
+  - 0.1825
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 144
+  center_m:
+  - 0.1825
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 145
+  center_m:
+  - 0.1825
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 146
+  center_m:
+  - 0.1825
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 147
+  center_m:
+  - 0.1825
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 148
+  center_m:
+  - 0.1825
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 149
+  center_m:
+  - 0.1825
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 150
+  center_m:
+  - 0.1825
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 151
+  center_m:
+  - 0.1825
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 152
+  center_m:
+  - 0.1825
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 153
+  center_m:
+  - 0.195
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 154
+  center_m:
+  - 0.195
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 155
+  center_m:
+  - 0.195
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 156
+  center_m:
+  - 0.195
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 157
+  center_m:
+  - 0.195
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 158
+  center_m:
+  - 0.195
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 159
+  center_m:
+  - 0.195
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 160
+  center_m:
+  - 0.195
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 161
+  center_m:
+  - 0.195
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 162
+  center_m:
+  - 0.195
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 163
+  center_m:
+  - 0.20750000000000002
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 164
+  center_m:
+  - 0.20750000000000002
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 165
+  center_m:
+  - 0.20750000000000002
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 166
+  center_m:
+  - 0.20750000000000002
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 167
+  center_m:
+  - 0.20750000000000002
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 168
+  center_m:
+  - 0.20750000000000002
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 169
+  center_m:
+  - 0.20750000000000002
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 170
+  center_m:
+  - 0.20750000000000002
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 171
+  center_m:
+  - 0.20750000000000002
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 172
+  center_m:
+  - 0.22
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 173
+  center_m:
+  - 0.22
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 174
+  center_m:
+  - 0.22
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 175
+  center_m:
+  - 0.22
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 176
+  center_m:
+  - 0.22
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 177
+  center_m:
+  - 0.22
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 178
+  center_m:
+  - 0.22
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 179
+  center_m:
+  - 0.22
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 180
+  center_m:
+  - 0.2325
+  - -0.005
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 181
+  center_m:
+  - 0.2325
+  - 0.007999999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 182
+  center_m:
+  - 0.2325
+  - 0.020999999999999994
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 183
+  center_m:
+  - 0.2325
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 184
+  center_m:
+  - 0.2325
+  - 0.04699999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 185
+  center_m:
+  - 0.2325
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 186
+  center_m:
+  - 0.245
+  - 0.033999999999999996
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 187
+  center_m:
+  - 0.245
+  - 0.05999999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 188
+  center_m:
+  - 0.245
+  - 0.07299999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 189
+  center_m:
+  - 0.245
+  - 0.08599999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 190
+  center_m:
+  - 0.245
+  - 0.09899999999999998
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 191
+  center_m:
+  - 0.245
+  - 0.11199999999999997
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0
+- id: 192
+  center_m:
+  - 0.245
+  - 0.12499999999999999
+  size_m: *id001
+  gap_m: 0.005
+  nominal_magnetization_A_m: 800000.0

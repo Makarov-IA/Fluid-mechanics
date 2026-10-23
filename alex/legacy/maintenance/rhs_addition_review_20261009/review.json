@@ -1,0 +1,21 @@
+{
+  "snapshot": "results/pulsation_re260_rhs_t30_test/binaries/result_999999.bin",
+  "time": 10.0,
+  "original_residuals": [
+    0.1059687326058878,
+    16.52280757644229
+  ],
+  "max_added_controls": [
+    0.1081465913280118,
+    16.855627513934262
+  ],
+  "controlled_equation_residuals": [
+    0.0022682684027583375,
+    0.46148080150484416
+  ],
+  "relative_distance": [
+    2.498109527090944,
+    1.339876264255751
+  ],
+  "note": "Saved-snapshot analysis only; no solver run. Controlled equation residual is F+P, not a measurement of the factorized step increment."
+}

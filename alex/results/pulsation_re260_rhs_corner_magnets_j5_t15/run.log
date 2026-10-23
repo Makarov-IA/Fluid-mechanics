@@ -1,0 +1,34 @@
+[python] pulsation_re260_rhs_corner_magnets_j5_t15: 201x101, Re=260, dt=1e-05, threads=1, forcing=custom
+[python] Compiling/loading numerical kernels...
+[python] step=0 tau=1e-05 Rpsi=1.129e-03 Romega=3.540e+01 control=4.615e-01
+[python] step=50000 tau=0.50001 Rpsi=6.114e-02 Romega=1.123e+02 control=5.031e-01
+[python] step=100000 tau=1.00001 Rpsi=4.200e-02 Romega=1.131e+02 control=1.583e+00
+[python] step=150000 tau=1.50001 Rpsi=3.905e-02 Romega=1.125e+02 control=4.945e+00
+[python] step=200000 tau=2.00001 Rpsi=6.663e-02 Romega=1.118e+02 control=8.635e+00
+[python] step=250000 tau=2.50001 Rpsi=1.201e-01 Romega=1.113e+02 control=1.469e+01
+[python] step=300000 tau=3.00001 Rpsi=1.257e-01 Romega=1.124e+02 control=2.050e+01
+[python] step=350000 tau=3.50001 Rpsi=1.535e-01 Romega=1.127e+02 control=2.063e+01
+[python] step=400000 tau=4.00001 Rpsi=1.711e-01 Romega=1.125e+02 control=1.757e+01
+[python] step=450000 tau=4.50001 Rpsi=1.851e-01 Romega=1.127e+02 control=1.690e+01
+[python] step=500000 tau=5.00001 Rpsi=1.974e-01 Romega=1.147e+02 control=2.212e+01
+[python] step=550000 tau=5.50001 Rpsi=1.312e-01 Romega=1.150e+02 control=2.037e+01
+[python] step=600000 tau=6.00001 Rpsi=1.976e-01 Romega=1.150e+02 control=1.686e+01
+[python] step=650000 tau=6.50001 Rpsi=1.254e-01 Romega=1.134e+02 control=1.720e+01
+[python] step=700000 tau=7.00001 Rpsi=1.065e-01 Romega=1.130e+02 control=1.874e+01
+[python] step=750000 tau=7.50001 Rpsi=1.096e-01 Romega=1.136e+02 control=1.907e+01
+[python] step=800000 tau=8.00001 Rpsi=1.168e-01 Romega=1.132e+02 control=1.851e+01
+[python] step=850000 tau=8.50001 Rpsi=1.173e-01 Romega=1.131e+02 control=1.821e+01
+[python] step=900000 tau=9.00001 Rpsi=1.142e-01 Romega=1.129e+02 control=1.834e+01
+[python] step=950000 tau=9.50001 Rpsi=1.132e-01 Romega=1.130e+02 control=1.840e+01
+[python] step=1000000 tau=10.00001 Rpsi=1.140e-01 Romega=1.130e+02 control=1.830e+01
+[python] step=1050000 tau=10.50001 Rpsi=1.142e-01 Romega=1.129e+02 control=1.820e+01
+[python] step=1100000 tau=11.00001 Rpsi=1.136e-01 Romega=1.129e+02 control=1.816e+01
+[python] step=1150000 tau=11.50001 Rpsi=1.132e-01 Romega=1.129e+02 control=1.815e+01
+[python] step=1200000 tau=12.00001 Rpsi=1.131e-01 Romega=1.129e+02 control=1.811e+01
+[python] step=1250000 tau=12.50001 Rpsi=1.130e-01 Romega=1.129e+02 control=1.807e+01
+[python] step=1300000 tau=13.00001 Rpsi=1.129e-01 Romega=1.129e+02 control=1.804e+01
+[python] step=1350000 tau=13.50001 Rpsi=1.127e-01 Romega=1.129e+02 control=1.802e+01
+[python] step=1400000 tau=14.00001 Rpsi=1.125e-01 Romega=1.129e+02 control=1.799e+01
+[python] step=1450000 tau=14.50001 Rpsi=1.124e-01 Romega=1.129e+02 control=1.797e+01
+[python] step=1499999 tau=15 Rpsi=1.124e-01 Romega=1.129e+02 control=1.795e+01
+[python] completed: /Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_rhs_corner_magnets_j5_t15/binaries

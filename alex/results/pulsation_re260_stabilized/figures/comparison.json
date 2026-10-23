@@ -1,0 +1,17 @@
+{
+  "без поправки": {
+    "final_distance_psi": 0.786673114650274,
+    "final_distance_omega": 0.4084234898089916,
+    "min_distance_omega": 0.06011252620995361,
+    "time_of_min_omega": 2.10001,
+    "final_omega_residual": 14.447099665624277
+  },
+  "с поправкой": {
+    "final_distance_psi": 0.00010439886630585978,
+    "final_distance_omega": 8.518087733193188e-05,
+    "min_distance_omega": 8.518087733193188e-05,
+    "time_of_min_omega": 10.0,
+    "final_omega_residual": 0.0038849294099726484,
+    "final_control": 0.0019476837813347633
+  }
+}

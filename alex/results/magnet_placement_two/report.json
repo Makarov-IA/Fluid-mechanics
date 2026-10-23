@@ -1,0 +1,132 @@
+{
+  "task": "finite_magnet_spatial_fit",
+  "config": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/configs/magnet_placement_two/magnet_placement_two.yaml",
+  "mode_file": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/pulsation_re260_base/linear_stability/stabilization.npz",
+  "mode_file_sha256": "8a872ae7f0c2fc099e7b4566704d59a05cee4cfb62c2b6a482d613d6b6ca2b75",
+  "grid": [
+    201,
+    101
+  ],
+  "magnets": [
+    {
+      "id": 1,
+      "center_m": [
+        0.04265900612844941,
+        0.04715213976262794
+      ],
+      "size_m": [
+        0.01,
+        0.01,
+        0.005
+      ],
+      "gap_m": 0.005,
+      "nominal_magnetization_A_m": 800000.0
+    },
+    {
+      "id": 2,
+      "center_m": [
+        0.09161233384285673,
+        0.05076344436470891
+      ],
+      "size_m": [
+        0.01,
+        0.01,
+        0.005
+      ],
+      "gap_m": 0.005,
+      "nominal_magnetization_A_m": 800000.0
+    }
+  ],
+  "physics": {
+    "length_m": 0.24,
+    "velocity_m_s": 0.0010833333333333333,
+    "density_kg_m3": 1000.0,
+    "current_density_A_m2": [
+      0.0,
+      0.1
+    ],
+    "bottom_thickness_m": 0.002,
+    "plane_height_m": 0.002
+  },
+  "top_face_to_observation_plane_m": 0.009000000000000001,
+  "relative_errors": [
+    0.992755379275042,
+    0.9927311178889506
+  ],
+  "worst_combination_relative_error": 0.9931771605745509,
+  "coefficients_for_positive_target": [
+    [
+      -0.0004031850709882986,
+      0.00039377005006764165
+    ],
+    [
+      0.0004171820823759175,
+      0.0004287402584435612
+    ]
+  ],
+  "control_law": "u = -gain * coefficients_for_positive_target @ a; S_control = G @ u",
+  "normalized_spatial_overlap_singular_values": [
+    0.12378548508347499,
+    0.1166139956382911
+  ],
+  "optimizer": {
+    "success": true,
+    "message": "Optimization terminated successfully.",
+    "evaluations": 1770,
+    "iterations": 42,
+    "seed": 42,
+    "best_error_by_generation": [
+      0.9948075685063716,
+      0.9948075685063716,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9941498090897573,
+      0.9940217059563456,
+      0.9940217059563456,
+      0.9939863701215567,
+      0.9936163963950452,
+      0.9936163963950452,
+      0.9936163963950452,
+      0.9936163963950452,
+      0.9936163963950452,
+      0.9932306542094427,
+      0.9932306542094427,
+      0.9932306542094427,
+      0.9932306542094427,
+      0.9932302692920112,
+      0.9932302692920112,
+      0.9932057953521576,
+      0.9931861781137576,
+      0.9931861781137576,
+      0.993180806690122,
+      0.993180806690122,
+      0.9931802561177749,
+      0.9931793878851648,
+      0.9931773728607084,
+      0.9931773728607084
+    ]
+  },
+  "assumptions": [
+    "Uniform vertical prescribed magnetization; nonmagnetic surroundings",
+    "Independent signed amplitudes per magnet; not permanent magnets with one shared current",
+    "Constant horizontal current; a single observation plane, no layer averaging",
+    "Unbounded amplitudes in the spatial least-squares fit; no hardware feasibility claim",
+    "Only omega component of state correction is fitted; psi feedback is not reproduced",
+    "No flow run, adjoint-mode controllability test, or closed-loop stability proof",
+    "Model dimensions and strengths, not experimental measurements or article parameters"
+  ]
+}

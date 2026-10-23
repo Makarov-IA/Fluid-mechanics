@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "magnet_count": 6,
+  "grid": [
+    201,
+    101
+  ],
+  "completed_steps": 101,
+  "snapshots_checked": 3,
+  "max_axis_normalization_error_T": 0.0,
+  "derivative_relative_max_error": 2.1338722292922933e-10,
+  "source_relative_max_error": 2.039632248517047e-10,
+  "Bz_range_T": [
+    -0.005032926305655094,
+    0.005032926305655094
+  ],
+  "source_range_nondimensional": [
+    -1.0403462434783703,
+    1.0403462434783706
+  ],
+  "first_step_source_response": 0.39057121940847206,
+  "final_psi_range": [
+    -2.73043394668996e-05,
+    2.7304339466899613e-05
+  ],
+  "final_omega_range": [
+    -0.08672225775529908,
+    0.08672225775529907
+  ],
+  "final_max_speed": 0.0004081942489852071,
+  "final_psi_res": 0.00410163703267518,
+  "final_omega_res": 4.880200213869956,
+  "converged": false,
+  "output_dir": "/Users/aasentsov/Desktop/fluid_mechanics/Fluid-mechanics/alex/results/maintenance_magnets_2x3_re260/verification"
+}
